@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   inputRowError: {
-    backgroundColor: '#FFFBF9',
+    backgroundColor: colors.dangerSurface,
   },
   prefix: {
     marginRight: spacing.sm,

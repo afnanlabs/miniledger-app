@@ -12,7 +12,8 @@ export const colors = {
 
   ink: '#0C1A13',
   inkMuted: '#5A6B62',
-  inkFaint: '#8B9A92',
+  // Dark enough for WCAG AA (>= 4.5:1) on the app background, not just white.
+  inkFaint: '#5F6E66',
 
   border: '#E1E8E2',
   borderStrong: '#CFDAD2',
@@ -20,6 +21,8 @@ export const colors = {
   primary: '#0B7A55',
   primaryPressed: '#075E41',
   primarySoft: '#E3F3EB',
+  primarySoftPressed: '#D3EBE0',
+  primaryTint: '#F7FBF9',
   onPrimary: '#FFFFFF',
 
   success: '#0B7A55',
@@ -27,6 +30,10 @@ export const colors = {
 
   danger: '#C2410C',
   dangerSoft: '#FCEFE7',
+  dangerSoftPressed: '#F8E0D2',
+  dangerSurface: '#FFFBF9',
+  dangerBorder: '#F3D9C8',
+  dangerWash: '#FFFDFC',
 
   warning: '#A16207',
   warningSoft: '#FBF3E2',

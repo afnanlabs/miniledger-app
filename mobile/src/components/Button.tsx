@@ -27,7 +27,7 @@ const palette: Record<
   },
   secondary: {
     background: colors.primarySoft,
-    pressed: '#D3EBE0',
+    pressed: colors.primarySoftPressed,
     text: colors.primary,
     border: 'transparent',
   },
@@ -39,7 +39,7 @@ const palette: Record<
   },
   danger: {
     background: colors.dangerSoft,
-    pressed: '#F8E0D2',
+    pressed: colors.dangerSoftPressed,
     text: colors.danger,
     border: 'transparent',
   },

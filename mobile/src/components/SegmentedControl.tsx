@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
   },
   segment: {
     flex: 1,
-    minHeight: 38,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,
@@ -63,7 +63,7 @@ const styles = StyleSheet.create({
   },
   segmentSelected: {
     backgroundColor: colors.surface,
-    shadowColor: '#0C1A13',
+    shadowColor: colors.ink,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 6,
