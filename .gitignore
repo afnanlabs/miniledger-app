@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# backend build output and coverage
+server/dist/
+coverage/
+*.tsbuildinfo
+
+# expo build output
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/expo-env.d.ts
+
+# local environment files (never commit secrets)
+.env
+.env.local
+.env.*.local
+mobile/.env
+
+# logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# editors / os
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
