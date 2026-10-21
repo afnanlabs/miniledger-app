@@ -1,5 +1,6 @@
 import { addDays, daysBetween, isValidDateString, todayInTimeZone } from '../src/utils/dates';
 import { isPositiveMoneyString, isValidMoneyString, toMoneyString } from '../src/utils/money';
+import { assertSafeTestDatabase } from './testDatabase';
 
 describe('money helpers', () => {
   it('formats values with exactly two decimals', () => {
@@ -32,6 +33,39 @@ describe('money helpers', () => {
     expect(isPositiveMoneyString('0.00')).toBe(false);
     expect(isPositiveMoneyString('0')).toBe(false);
     expect(isPositiveMoneyString('000.10')).toBe(true);
+  });
+});
+
+describe('test database safety guard', () => {
+  it('accepts a database whose name ends in _test', () => {
+    expect(
+      assertSafeTestDatabase('postgres://user:pass@127.0.0.1:5432/miniledger_test', false),
+    ).toBe('miniledger_test');
+  });
+
+  it('refuses the development database without an explicit override', () => {
+    expect(() =>
+      assertSafeTestDatabase('postgres://user:pass@127.0.0.1:5432/miniledger', false),
+    ).toThrow(/does not end in "_test"/);
+  });
+
+  it('allows a non-test database only with the explicit override', () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(
+        assertSafeTestDatabase('postgres://user:pass@127.0.0.1:5432/miniledger_staging', true),
+      ).toBe('miniledger_staging');
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining('ALLOW_NON_TEST_DATABASE=true'));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it('refuses malformed or unnamed connection URLs', () => {
+    expect(() => assertSafeTestDatabase('not-a-url', false)).toThrow(/valid PostgreSQL connection URL/);
+    expect(() => assertSafeTestDatabase('postgres://127.0.0.1:5432/', false)).toThrow(
+      /does not name a database/,
+    );
   });
 });
 

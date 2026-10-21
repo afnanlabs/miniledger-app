@@ -1,5 +1,6 @@
 import path from 'node:path';
 import dotenv from 'dotenv';
+import { assertSafeTestDatabase } from './testDatabase';
 
 /**
  * Runs before every test file. It prepares the environment *before* any
@@ -13,6 +14,7 @@ process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
   'postgres://miniledger:miniledger_dev_pw@127.0.0.1:5432/miniledger_test';
+assertSafeTestDatabase(process.env.DATABASE_URL);
 process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'test-only-secret-value-not-used-anywhere-else';
 process.env.APP_TIMEZONE = process.env.TEST_APP_TIMEZONE ?? 'UTC';
 process.env.LOG_OTP_TO_CONSOLE = 'false';

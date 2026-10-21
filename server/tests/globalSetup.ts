@@ -2,6 +2,7 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 import { Pool } from 'pg';
 import { runMigrations } from '../src/db/migrate';
+import { assertSafeTestDatabase } from './testDatabase';
 
 /**
  * Prepares the test database before the suite starts:
@@ -15,6 +16,10 @@ export default async function globalSetup(): Promise<void> {
   const connectionString =
     process.env.TEST_DATABASE_URL ??
     'postgres://miniledger:miniledger_dev_pw@127.0.0.1:5432/miniledger_test';
+
+  // This runs before migrations and TRUNCATE: never let a misconfigured test
+  // URL point the destructive setup at the development database.
+  assertSafeTestDatabase(connectionString);
 
   const pool = new Pool({ connectionString });
   try {
