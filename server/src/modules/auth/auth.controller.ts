@@ -5,8 +5,8 @@ import type { RequestOtpInput, VerifyOtpInput } from '../../schemas/auth.schema'
 import * as authService from './auth.service';
 
 export const requestOtp = asyncHandler(async (req: Request, res: Response) => {
-  const { phoneNumber } = validatedBody<RequestOtpInput>(req);
-  const result = await authService.requestOtp(phoneNumber);
+  const { phoneNumber, name } = validatedBody<RequestOtpInput>(req);
+  const result = await authService.requestOtp(phoneNumber, name);
   sendOk(res, result);
 });
 
@@ -22,6 +22,7 @@ export const me = asyncHandler(async (req: Request, res: Response) => {
   sendOk(res, {
     id: user.id,
     phoneNumber: user.phoneNumber,
+    name: user.name,
     createdAt: user.createdAt,
   });
 });

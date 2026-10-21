@@ -10,7 +10,7 @@ import {
 } from 'react';
 
 import { authService } from '../services/auth';
-import { ApiError, setAuthToken } from '../services/api';
+import { ApiError, setAuthToken, setUnauthorizedHandler } from '../services/api';
 import type { User } from '../types';
 
 const TOKEN_KEY = 'miniledger.auth.token';
@@ -37,6 +37,18 @@ async function clearStoredSession(): Promise<void> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<User | null>(null);
+
+  const handleUnauthorized = useCallback(() => {
+    void clearStoredSession();
+    setUser(null);
+    setStatus('signedOut');
+  }, []);
+
+  // Any authenticated 401 (revoked/expired token) ends the local session once.
+  useEffect(() => {
+    setUnauthorizedHandler(handleUnauthorized);
+    return () => setUnauthorizedHandler(null);
+  }, [handleUnauthorized]);
 
   // Restore the saved session on cold start.
   useEffect(() => {

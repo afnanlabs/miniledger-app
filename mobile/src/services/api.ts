@@ -39,9 +39,18 @@ export function fieldErrors(error: unknown): Record<string, string> {
 }
 
 let authToken: string | null = null;
+let unauthorizedHandler: (() => void) | null = null;
 
 export function setAuthToken(token: string | null): void {
   authToken = token;
+}
+
+/**
+ * Called once when an authenticated request receives a 401, so the app can
+ * clear a revoked/expired session instead of leaving the user in an error loop.
+ */
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
 }
 
 interface RequestOptions {
@@ -92,6 +101,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     }
 
     if (!response.ok || envelope?.success === false) {
+      if (response.status === 401 && authToken) {
+        // Session was revoked or expired while the app was open.
+        authToken = null;
+        unauthorizedHandler?.();
+      }
+
       const message =
         envelope?.error?.message ??
         (response.status >= 500

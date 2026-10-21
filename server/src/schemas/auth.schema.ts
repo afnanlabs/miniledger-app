@@ -23,8 +23,16 @@ export const otpSchema = z
   .trim()
   .regex(/^\d{6}$/, 'OTP must be exactly 6 digits');
 
+/** Display name collected at sign-in. */
+export const userNameSchema = z
+  .string({ error: 'Full name is required' })
+  .trim()
+  .min(2, 'Full name must be at least 2 characters')
+  .max(80, 'Full name must be 80 characters or fewer');
+
 export const requestOtpSchema = z.object({
   phoneNumber: phoneNumberSchema,
+  name: userNameSchema,
 });
 
 export const verifyOtpSchema = z.object({

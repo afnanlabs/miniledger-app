@@ -2,10 +2,10 @@ import { apiRequest } from './api';
 import type { RequestOtpResponse, User, VerifyOtpResponse } from '../types';
 
 export const authService = {
-  requestOtp(phoneNumber: string): Promise<RequestOtpResponse> {
+  requestOtp(phoneNumber: string, name: string): Promise<RequestOtpResponse> {
     return apiRequest<RequestOtpResponse>('/auth/request-otp', {
       method: 'POST',
-      body: { phoneNumber },
+      body: { phoneNumber, name },
     });
   },
 

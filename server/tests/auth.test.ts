@@ -8,7 +8,7 @@ describe('POST /api/v1/auth/request-otp', () => {
   it('rejects a phone number that is not a valid Indian mobile number', async () => {
     const response = await request(app)
       .post('/api/v1/auth/request-otp')
-      .send({ phoneNumber: '12345' })
+      .send({ phoneNumber: '12345', name: 'Test User' })
       .expect(400);
 
     expect(response.body.success).toBe(false);
@@ -21,10 +21,41 @@ describe('POST /api/v1/auth/request-otp', () => {
     expect(response.body.error.code).toBe('VALIDATION_ERROR');
   });
 
+  it('requires the full name', async () => {
+    const response = await request(app)
+      .post('/api/v1/auth/request-otp')
+      .send({ phoneNumber: uniquePhone() })
+      .expect(400);
+
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(
+      response.body.error.details.map((detail: { field: string }) => detail.field),
+    ).toContain('name');
+  });
+
+  it('rejects a name that is only whitespace', async () => {
+    const response = await request(app)
+      .post('/api/v1/auth/request-otp')
+      .send({ phoneNumber: uniquePhone(), name: '   ' })
+      .expect(400);
+
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(response.body.error.details[0].field).toBe('name');
+  });
+
+  it('rejects a name longer than 80 characters', async () => {
+    const response = await request(app)
+      .post('/api/v1/auth/request-otp')
+      .send({ phoneNumber: uniquePhone(), name: 'A'.repeat(81) })
+      .expect(400);
+
+    expect(response.body.error.details[0].field).toBe('name');
+  });
+
   it('normalises the phone number and returns the OTP expiry', async () => {
     const response = await request(app)
       .post('/api/v1/auth/request-otp')
-      .send({ phoneNumber: ' 98765 43210 ' })
+      .send({ phoneNumber: ' 98765 43210 ', name: 'Test User' })
       .expect(200);
 
     expect(response.body.success).toBe(true);
@@ -36,12 +67,15 @@ describe('POST /api/v1/auth/request-otp', () => {
     const phoneNumber = uniquePhone();
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await request(app).post('/api/v1/auth/request-otp').send({ phoneNumber }).expect(200);
+      await request(app)
+        .post('/api/v1/auth/request-otp')
+        .send({ phoneNumber, name: 'Test User' })
+        .expect(200);
     }
 
     const response = await request(app)
       .post('/api/v1/auth/request-otp')
-      .send({ phoneNumber })
+      .send({ phoneNumber, name: 'Test User' })
       .expect(429);
 
     expect(response.body.error.code).toBe('OTP_REQUEST_LIMIT');
@@ -51,7 +85,10 @@ describe('POST /api/v1/auth/request-otp', () => {
 describe('POST /api/v1/auth/verify-otp', () => {
   it('rejects a wrong OTP and reports the remaining attempts', async () => {
     const phoneNumber = uniquePhone();
-    await request(app).post('/api/v1/auth/request-otp').send({ phoneNumber }).expect(200);
+    await request(app)
+      .post('/api/v1/auth/request-otp')
+      .send({ phoneNumber, name: 'Test User' })
+      .expect(200);
 
     const response = await request(app)
       .post('/api/v1/auth/verify-otp')
@@ -75,7 +112,7 @@ describe('POST /api/v1/auth/verify-otp', () => {
     const phoneNumber = uniquePhone();
     const otpResponse = await request(app)
       .post('/api/v1/auth/request-otp')
-      .send({ phoneNumber })
+      .send({ phoneNumber, name: 'Test User' })
       .expect(200);
 
     const response = await request(app)
@@ -87,11 +124,46 @@ describe('POST /api/v1/auth/verify-otp', () => {
     expect(response.body.data.user.phoneNumber).toBe(`+91${phoneNumber}`);
   });
 
+  it('persists the name submitted with the OTP request', async () => {
+    const phoneNumber = uniquePhone();
+    const otpResponse = await request(app)
+      .post('/api/v1/auth/request-otp')
+      .send({ phoneNumber, name: 'Afnan Khan' })
+      .expect(200);
+
+    const response = await request(app)
+      .post('/api/v1/auth/verify-otp')
+      .send({ phoneNumber, otp: otpResponse.body.data.devOtp })
+      .expect(200);
+
+    expect(response.body.data.user.name).toBe('Afnan Khan');
+    expect(response.body.data.user.phoneNumber).toBe(`+91${phoneNumber}`);
+
+    const stored = await pool.query('SELECT name FROM users WHERE phone_number = $1', [
+      `+91${phoneNumber}`,
+    ]);
+    expect(stored.rows[0].name).toBe('Afnan Khan');
+  });
+
+  it('updates the name for a returning number without duplicating the user', async () => {
+    const phoneNumber = uniquePhone();
+    const first = await signUp(phoneNumber, 'Afnan Khan');
+    const second = await signUp(phoneNumber, 'Afnan K');
+
+    expect(second.userId).toBe(first.userId);
+
+    const rows = await pool.query('SELECT name FROM users WHERE phone_number = $1', [
+      `+91${phoneNumber}`,
+    ]);
+    expect(rows.rowCount).toBe(1);
+    expect(rows.rows[0].name).toBe('Afnan K');
+  });
+
   it('cannot reuse an OTP once it has been verified', async () => {
     const phoneNumber = uniquePhone();
     const otpResponse = await request(app)
       .post('/api/v1/auth/request-otp')
-      .send({ phoneNumber })
+      .send({ phoneNumber, name: 'Test User' })
       .expect(200);
 
     await request(app)
@@ -111,7 +183,7 @@ describe('POST /api/v1/auth/verify-otp', () => {
     const phoneNumber = uniquePhone();
     const otpResponse = await request(app)
       .post('/api/v1/auth/request-otp')
-      .send({ phoneNumber })
+      .send({ phoneNumber, name: 'Test User' })
       .expect(200);
 
     // Simulate the five minute window elapsing.
@@ -132,12 +204,12 @@ describe('POST /api/v1/auth/verify-otp', () => {
     const phoneNumber = uniquePhone();
     const first = await request(app)
       .post('/api/v1/auth/request-otp')
-      .send({ phoneNumber })
+      .send({ phoneNumber, name: 'Test User' })
       .expect(200);
 
     const second = await request(app)
       .post('/api/v1/auth/request-otp')
-      .send({ phoneNumber })
+      .send({ phoneNumber, name: 'Test User' })
       .expect(200);
 
     const stale = await request(app)
@@ -180,8 +252,21 @@ describe('GET /api/v1/auth/me', () => {
 
     expect(response.body.data.id).toBe(user.userId);
     expect(response.body.data.phoneNumber).toBe(`+91${user.phoneNumber}`);
+    expect(response.body.data.name).toBe(user.name);
     expect(new Date(response.body.data.createdAt).toString()).not.toBe('Invalid Date');
     expect(response.body.data.tokenVersion).toBeUndefined();
+  });
+
+  it('returns a null name for accounts created before names existed', async () => {
+    const user = await signUp();
+    await pool.query('UPDATE users SET name = NULL WHERE id = $1', [user.userId]);
+
+    const response = await request(app)
+      .get('/api/v1/auth/me')
+      .set(...authHeader(user.token))
+      .expect(200);
+
+    expect(response.body.data.name).toBeNull();
   });
 });
 

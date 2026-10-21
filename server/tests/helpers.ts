@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { pool } from '../src/config/db';
+import { assertSafeTestDatabase } from './testDatabase';
 
 export const app = createApp();
 
@@ -11,6 +12,9 @@ let phoneCounter = 0;
  * see each other's data (Jest runs the files one after another via --runInBand).
  */
 export async function resetDatabase(): Promise<void> {
+  // Keep the guard next to the destructive statement as well, so directly
+  // invoking this helper can never truncate a non-test database.
+  assertSafeTestDatabase(process.env.DATABASE_URL ?? '');
   await pool.query('TRUNCATE loans, otp_challenges, users RESTART IDENTITY CASCADE');
 }
 
@@ -25,13 +29,17 @@ export interface SignedInUser {
   token: string;
   userId: string;
   phoneNumber: string;
+  name: string;
 }
 
 /** Runs the full mock-OTP sign-in flow and returns a usable JWT. */
-export async function signUp(phoneNumber = uniquePhone()): Promise<SignedInUser> {
+export async function signUp(
+  phoneNumber = uniquePhone(),
+  name = 'Test User',
+): Promise<SignedInUser> {
   const requestResponse = await request(app)
     .post('/api/v1/auth/request-otp')
-    .send({ phoneNumber })
+    .send({ phoneNumber, name })
     .expect(200);
 
   const otp = requestResponse.body.data.devOtp as string;
@@ -46,6 +54,7 @@ export async function signUp(phoneNumber = uniquePhone()): Promise<SignedInUser>
     token: verifyResponse.body.data.token as string,
     userId: verifyResponse.body.data.user.id as string,
     phoneNumber,
+    name,
   };
 }
 

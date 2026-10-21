@@ -4,6 +4,8 @@ export type LoanStatus = 'pending' | 'repaid';
 export interface User {
   id: string;
   phone_number: string;
+  /** Display name. Null for accounts created before names were collected. */
+  name: string | null;
   token_version: number;
   created_at: Date;
   updated_at: Date;
@@ -13,6 +15,8 @@ export interface OtpChallenge {
   id: string;
   user_id: string | null;
   phone_number: string;
+  /** Name submitted with the request, or null when it was not provided. */
+  requested_name: string | null;
   code_hash: string;
   attempts: number;
   max_attempts: number;
@@ -38,6 +42,8 @@ export interface Loan {
 export interface AuthUser {
   id: string;
   phoneNumber: string;
+  /** Null for accounts that have not provided a name yet. */
+  name: string | null;
   tokenVersion: number;
   /** ISO-8601 timestamp of when the account was created. */
   createdAt: string;

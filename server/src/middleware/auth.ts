@@ -50,6 +50,7 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
     req.user = {
       id: user.id,
       phoneNumber: user.phone_number,
+      name: user.name,
       tokenVersion: user.token_version,
       createdAt: toIsoString(user.created_at) ?? '',
     };

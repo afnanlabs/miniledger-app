@@ -11,12 +11,13 @@ async function main(): Promise<void> {
   await runMigrations(pool, defaultSqlDir());
 
   const phoneNumber = '+919876543210';
+  const name = 'Afnan Khan';
 
   const user = await pool.query(
-    `INSERT INTO users (phone_number) VALUES ($1)
-     ON CONFLICT (phone_number) DO UPDATE SET updated_at = now()
+    `INSERT INTO users (phone_number, name) VALUES ($1, $2)
+     ON CONFLICT (phone_number) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
      RETURNING id, phone_number`,
-    [phoneNumber],
+    [phoneNumber, name],
   );
 
   const userId = user.rows[0].id as string;
@@ -44,6 +45,8 @@ async function main(): Promise<void> {
   console.log('[MiniLedger] Seed data created.');
   // eslint-disable-next-line no-console
   console.log(`  Demo phone number: ${phoneNumber}`);
+  // eslint-disable-next-line no-console
+  console.log(`  Demo name: ${name}`);
   // eslint-disable-next-line no-console
   console.log('  Request an OTP in the app and read the code from this terminal.');
 }

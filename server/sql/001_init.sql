@@ -13,6 +13,9 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   phone_number  VARCHAR(20) NOT NULL UNIQUE,
+  -- Display name collected at sign-in. Nullable so accounts created before
+  -- names existed stay valid; migration 002 backfills nothing on purpose.
+  name          VARCHAR(80),
   -- Bumped on logout. Tokens issued before the bump are rejected.
   token_version INTEGER NOT NULL DEFAULT 0,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -26,6 +29,8 @@ CREATE TABLE IF NOT EXISTS otp_challenges (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       UUID REFERENCES users (id) ON DELETE CASCADE,
   phone_number  VARCHAR(20) NOT NULL,
+  -- Name submitted with this OTP request; applied when the code is verified.
+  requested_name VARCHAR(80),
   -- bcrypt hash of the six digit code - the plain code is never stored.
   code_hash     TEXT NOT NULL,
   attempts      INTEGER NOT NULL DEFAULT 0,

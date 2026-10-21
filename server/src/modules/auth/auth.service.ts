@@ -21,6 +21,8 @@ const BCRYPT_ROUNDS = 10;
 export interface UserDto {
   id: string;
   phoneNumber: string;
+  /** Null only for accounts created before names were collected. */
+  name: string | null;
   createdAt: string;
 }
 
@@ -28,6 +30,7 @@ export function toUserDto(user: User): UserDto {
   return {
     id: user.id,
     phoneNumber: user.phone_number,
+    name: user.name ?? null,
     createdAt: toIsoString(user.created_at) ?? '',
   };
 }
@@ -62,10 +65,13 @@ export interface RequestOtpResult {
 /**
  * Creates a mock OTP challenge for a phone number.
  *
+ * The name submitted with the request is stored on the challenge and applied
+ * when the code is verified.
+ *
  * MOCK IMPLEMENTATION - no SMS provider is involved. The code is printed to the
  * server terminal (development only) so it can be typed into the mobile app.
  */
-export async function requestOtp(phoneNumber: string): Promise<RequestOtpResult> {
+export async function requestOtp(phoneNumber: string, name: string): Promise<RequestOtpResult> {
   const windowStart = new Date(Date.now() - env.OTP_REQUEST_WINDOW_SECONDS * 1000);
   const recentRequests = await countRequestsSince(phoneNumber, windowStart);
 
@@ -86,6 +92,7 @@ export async function requestOtp(phoneNumber: string): Promise<RequestOtpResult>
 
   await createOtpChallenge({
     phoneNumber,
+    requestedName: name,
     codeHash,
     expiresAt,
     maxAttempts: env.OTP_MAX_VERIFY_ATTEMPTS,
@@ -160,7 +167,10 @@ export async function verifyOtp(phoneNumber: string, otp: string): Promise<Verif
   // The OTP is single use - invalidate it before issuing the token.
   await consumeChallenge(challenge.id);
 
-  const { user } = await findOrCreateUser(phoneNumber);
+  // The name travels with the challenge, so it is bound to the code that was
+  // actually verified. A returning user is never duplicated; their stored name
+  // is refreshed if they submitted a different one.
+  const { user } = await findOrCreateUser(phoneNumber, challenge.requested_name);
   const token = signToken(user);
 
   return {

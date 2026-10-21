@@ -1,6 +1,8 @@
 export interface User {
   id: string;
   phoneNumber: string;
+  /** Null for accounts that signed in before names were collected. */
+  name: string | null;
   createdAt: string;
 }
 
@@ -61,6 +63,9 @@ export interface CreateLoanInput {
   amount: string;
   dueDate: string;
 }
+
+/** PATCH accepts any subset of the create fields. */
+export type UpdateLoanInput = Partial<CreateLoanInput>;
 
 export interface FieldError {
   field: string;

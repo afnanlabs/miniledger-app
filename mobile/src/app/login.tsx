@@ -14,31 +14,42 @@ import {
 import { AppText } from '../components/AppText';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { OtpInput, OTP_LENGTH } from '../components/OtpInput';
 import { Screen } from '../components/Screen';
+import { ErrorBanner } from '../components/StateView';
 import { TextField } from '../components/TextField';
 import { API_HOST_LABEL } from '../constants/config';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../hooks/useAuth';
-import { ApiError } from '../services/api';
+import { ApiError, fieldErrors } from '../services/api';
 import { authService } from '../services/auth';
 
-type Step = 'phone' | 'otp';
+type Step = 'details' | 'otp';
+
+interface FormErrors {
+  name?: string;
+  phone?: string;
+  otp?: string;
+}
 
 const RESEND_SECONDS = 30;
+const PHONE_PATTERN = /^[6-9]\d{9}$/;
 
 export default function LoginScreen() {
   const { status, signIn } = useAuth();
 
-  const [step, setStep] = useState<Step>('phone');
+  const [step, setStep] = useState<Step>('details');
+  const [fullName, setFullName] = useState('');
   const [phoneDigits, setPhoneDigits] = useState('');
   const [otp, setOtp] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [formError, setFormError] = useState('');
   const [notice, setNotice] = useState('');
   const [devOtp, setDevOtp] = useState<string | null>(null);
   const [resendIn, setResendIn] = useState(0);
 
-  const otpInputRef = useRef<TextInput | null>(null);
+  const phoneInputRef = useRef<TextInput | null>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -60,69 +71,117 @@ export default function LoginScreen() {
     return <Redirect href="/" />;
   }
 
+  function handleNameChange(value: string) {
+    setFullName(value);
+    setErrors((current) => ({ ...current, name: undefined }));
+    setFormError('');
+  }
+
   function handlePhoneChange(value: string) {
     setPhoneDigits(value.replace(/\D/g, '').slice(0, 10));
-    setError('');
+    setErrors((current) => ({ ...current, phone: undefined }));
+    setFormError('');
   }
 
   function handleOtpChange(value: string) {
-    setOtp(value.replace(/\D/g, '').slice(0, 6));
-    setError('');
+    setOtp(value.replace(/\D/g, '').slice(0, OTP_LENGTH));
+    setErrors((current) => ({ ...current, otp: undefined }));
+    setFormError('');
+  }
+
+  function resetToDetails() {
+    setStep('details');
+    setOtp('');
+    setErrors({});
+    setFormError('');
+    setNotice('');
+    setDevOtp(null);
+  }
+
+  function validateDetails(): boolean {
+    const nextErrors: FormErrors = {};
+    const trimmedName = fullName.trim();
+
+    if (trimmedName.length < 2) {
+      nextErrors.name =
+        trimmedName.length === 0 ? 'Enter your full name.' : 'Name must be at least 2 characters.';
+    }
+    if (!PHONE_PATTERN.test(phoneDigits)) {
+      nextErrors.phone = 'Enter a valid 10-digit mobile number (starting with 6-9).';
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   }
 
   async function requestOtp(isResend = false) {
-    if (phoneDigits.length !== 10) {
-      setError('Enter your 10-digit mobile number.');
-      return;
-    }
+    if (!isResend && !validateDetails()) return;
 
     setBusy(true);
-    setError('');
+    setErrors({});
+    setFormError('');
     try {
-      const result = await authService.requestOtp(phoneDigits);
+      const result = await authService.requestOtp(phoneDigits, fullName.trim());
       if (!mounted.current) return;
 
       setStep('otp');
       setOtp('');
       setDevOtp(result.devOtp ?? null);
       setResendIn(RESEND_SECONDS);
+      const minutes = Math.round(result.expiresInSeconds / 60);
+      const expiry =
+        result.expiresInSeconds < 60
+          ? `${result.expiresInSeconds} seconds`
+          : `${minutes} minute${minutes === 1 ? '' : 's'}`;
       setNotice(
         isResend
-          ? 'A new code has been generated. Check the backend terminal.'
-          : 'Code generated. It expires in 5 minutes.',
+          ? `A new code has been generated. It expires in ${expiry}.`
+          : `Code generated. It expires in ${expiry}.`,
       );
-      setTimeout(() => otpInputRef.current?.focus(), 250);
     } catch (caught) {
       if (!mounted.current) return;
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : 'Could not request an OTP. Please try again.',
-      );
+
+      const mapped = fieldErrors(caught);
+      const nextErrors: FormErrors = {
+        name: mapped.name,
+        phone: mapped.phoneNumber,
+      };
+      if (nextErrors.name || nextErrors.phone) {
+        setErrors(nextErrors);
+      } else {
+        setFormError(
+          caught instanceof ApiError
+            ? caught.message
+            : 'Could not request an OTP. Please try again.',
+        );
+      }
     } finally {
       if (mounted.current) setBusy(false);
     }
   }
 
   async function verifyOtp() {
-    if (otp.length !== 6) {
-      setError('Enter the 6-digit code.');
-      return;
-    }
+    if (otp.length !== OTP_LENGTH) return;
 
     setBusy(true);
-    setError('');
+    setErrors({});
+    setFormError('');
     try {
       await signIn(phoneDigits, otp);
       // The `status === 'signedIn'` branch above performs the redirect.
     } catch (caught) {
       if (!mounted.current) return;
-      setError(
-        caught instanceof ApiError ? caught.message : 'Could not verify the OTP. Please try again.',
-      );
+      setErrors({
+        otp:
+          caught instanceof ApiError
+            ? caught.message
+            : 'Could not verify the OTP. Please try again.',
+      });
       setBusy(false);
     }
   }
+
+  const firstName = fullName.trim().split(/\s+/)[0] ?? '';
 
   return (
     <Screen edges={['top', 'bottom']}>
@@ -150,12 +209,34 @@ export default function LoginScreen() {
           </View>
 
           <Card style={styles.card}>
-            {step === 'phone' ? (
+            {formError ? (
+              <View style={styles.banner}>
+                <ErrorBanner message={formError} />
+              </View>
+            ) : null}
+
+            {step === 'details' ? (
               <>
                 <AppText variant="heading">Sign in</AppText>
                 <AppText variant="small" color={colors.inkMuted} style={styles.subcopy}>
-                  We will send a one-time code to verify your number.
+                  Tell us your name and we will send a one-time code to verify your number.
                 </AppText>
+
+                <TextField
+                  label="Full name"
+                  value={fullName}
+                  onChangeText={handleNameChange}
+                  placeholder="Afnan Khan"
+                  autoCapitalize="words"
+                  autoComplete="name"
+                  textContentType="name"
+                  maxLength={80}
+                  autoFocus
+                  error={errors.name}
+                  returnKeyType="next"
+                  onSubmitEditing={() => phoneInputRef.current?.focus()}
+                  containerStyle={styles.field}
+                />
 
                 <TextField
                   label="Mobile number"
@@ -167,8 +248,8 @@ export default function LoginScreen() {
                   autoComplete="tel"
                   textContentType="telephoneNumber"
                   maxLength={10}
-                  autoFocus
-                  error={error || undefined}
+                  inputRef={phoneInputRef}
+                  error={errors.phone}
                   helper="Indian numbers only (10 digits, starting with 6-9)"
                   returnKeyType="done"
                   onSubmitEditing={() => void requestOtp()}
@@ -186,21 +267,17 @@ export default function LoginScreen() {
               <>
                 <View style={styles.otpHeader}>
                   <View style={styles.flex}>
-                    <AppText variant="heading">Enter the code</AppText>
+                    <AppText variant="heading">
+                      {firstName ? `Hello, ${firstName}` : 'Enter the code'}
+                    </AppText>
                     <AppText variant="small" color={colors.inkMuted} style={styles.subcopy}>
                       Sent to +91 {phoneDigits.slice(0, 5)} {phoneDigits.slice(5)}
                     </AppText>
                   </View>
                   <Pressable
-                    onPress={() => {
-                      setStep('phone');
-                      setOtp('');
-                      setError('');
-                      setNotice('');
-                      setDevOtp(null);
-                    }}
+                    onPress={resetToDetails}
                     accessibilityRole="button"
-                    accessibilityLabel="Change phone number"
+                    accessibilityLabel="Change name or phone number"
                     hitSlop={12}
                     style={styles.changeButton}
                   >
@@ -210,26 +287,28 @@ export default function LoginScreen() {
                   </Pressable>
                 </View>
 
-                <TextField
-                  label="6-digit OTP"
+                <OtpInput
                   value={otp}
-                  onChangeText={handleOtpChange}
-                  placeholder="••••••"
-                  keyboardType="number-pad"
-                  maxLength={6}
+                  onChange={handleOtpChange}
+                  hasError={Boolean(errors.otp)}
                   autoFocus
-                  inputRef={otpInputRef}
-                  error={error || undefined}
-                  helper={notice || undefined}
-                  returnKeyType="done"
-                  onSubmitEditing={() => void verifyOtp()}
-                  containerStyle={styles.field}
                 />
+
+                {errors.otp ? (
+                  <AppText variant="caption" color={colors.danger} style={styles.otpError}>
+                    {errors.otp}
+                  </AppText>
+                ) : notice ? (
+                  <AppText variant="caption" color={colors.inkFaint} style={styles.otpError}>
+                    {notice}
+                  </AppText>
+                ) : null}
 
                 <Button
                   label="Verify & sign in"
                   onPress={() => void verifyOtp()}
                   loading={busy}
+                  disabled={otp.length !== OTP_LENGTH}
                   style={styles.submit}
                 />
 
@@ -243,6 +322,7 @@ export default function LoginScreen() {
                     accessibilityRole="button"
                     accessibilityState={{ disabled: busy || resendIn > 0 }}
                     hitSlop={8}
+                    style={styles.resendButton}
                   >
                     <AppText
                       variant="smallStrong"
@@ -271,10 +351,7 @@ export default function LoginScreen() {
 
               {devOtp ? (
                 <Pressable
-                  onPress={() => {
-                    setOtp(devOtp);
-                    setError('');
-                  }}
+                  onPress={() => handleOtpChange(devOtp)}
                   accessibilityRole="button"
                   accessibilityLabel={`Use the development code ${devOtp}`}
                   style={styles.devOtp}
@@ -294,7 +371,7 @@ export default function LoginScreen() {
           ) : null}
 
           <AppText variant="caption" color={colors.inkFaint} style={styles.footer}>
-            API: {API_HOST_LABEL}
+            {__DEV__ ? `API: ${API_HOST_LABEL}` : 'MiniLedger · keep track of what you lend'}
           </AppText>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -337,6 +414,9 @@ const styles = StyleSheet.create({
   card: {
     padding: spacing.xxl,
   },
+  banner: {
+    marginBottom: spacing.lg,
+  },
   subcopy: {
     marginTop: spacing.xs,
     marginBottom: spacing.xl,
@@ -355,8 +435,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   changeButton: {
+    minHeight: 44,
+    justifyContent: 'center',
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.xs,
+  },
+  otpError: {
+    marginTop: spacing.sm,
   },
   resendRow: {
     flexDirection: 'row',
@@ -364,6 +449,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.xs,
     marginTop: spacing.lg,
+  },
+  resendButton: {
+    minHeight: 44,
+    justifyContent: 'center',
   },
   devCard: {
     marginTop: spacing.lg,

@@ -2,10 +2,12 @@ import { query, queryOne } from '../../config/db';
 import type { OtpChallenge } from '../../types';
 
 const CHALLENGE_COLUMNS =
-  'id, user_id, phone_number, code_hash, attempts, max_attempts, expires_at, consumed_at, created_at';
+  'id, user_id, phone_number, requested_name, code_hash, attempts, max_attempts, expires_at, consumed_at, created_at';
 
 export interface NewOtpChallenge {
   phoneNumber: string;
+  /** Display name submitted with the request. */
+  requestedName: string | null;
   codeHash: string;
   expiresAt: Date;
   maxAttempts: number;
@@ -13,10 +15,16 @@ export interface NewOtpChallenge {
 
 export async function createOtpChallenge(params: NewOtpChallenge): Promise<OtpChallenge> {
   const created = await queryOne<OtpChallenge>(
-    `INSERT INTO otp_challenges (phone_number, code_hash, expires_at, max_attempts)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO otp_challenges (phone_number, requested_name, code_hash, expires_at, max_attempts)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING ${CHALLENGE_COLUMNS}`,
-    [params.phoneNumber, params.codeHash, params.expiresAt, params.maxAttempts],
+    [
+      params.phoneNumber,
+      params.requestedName,
+      params.codeHash,
+      params.expiresAt,
+      params.maxAttempts,
+    ],
   );
   if (!created) throw new Error('Unable to store OTP challenge');
   return created;
