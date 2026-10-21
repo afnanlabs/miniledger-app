@@ -4,33 +4,42 @@ Track the money you lend to friends, and get it back.
 
 MiniLedger is a small full-stack app: a React Native (Expo) mobile client and a
 Node/Express/PostgreSQL API. You sign in with a phone number and a development
-OTP, add loans, see what is pending and what is overdue, and mark loans as
-repaid.
+OTP, add loans, correct or delete pending entries, see what is pending and what
+is overdue, and mark loans as repaid.
 
 | | |
 |---|---|
 | Mobile | React Native 0.86 via Expo SDK 57, TypeScript, Expo Router, Fetch + AsyncStorage |
 | Backend | Node 20+, Express 5, TypeScript, PostgreSQL, `pg`, JWT, Zod |
-| Tests | Jest + Supertest (55 endpoint/unit tests) |
+| Tests | Jest + Supertest (85 endpoint/unit tests) |
 
 ---
 
 ## Features
 
-- **Phone login with a mock OTP.** A 6-digit code is generated on the server and
-  printed to the backend terminal. It expires after 5 minutes, allows 5 wrong
-  attempts, and is invalidated after a successful sign-in. Requesting codes is
-  rate limited (5 per 15 minutes per number).
+- **Phone login with a mock OTP.** The sign-in form collects a full name and a
+  phone number. A 6-digit code is generated on the server and printed to the
+  backend terminal. It expires after 5 minutes, allows 5 wrong attempts, and is
+  invalidated after a successful sign-in. Requesting codes is rate limited (5 per
+  15 minutes per number).
+- **Personalised dashboard.** The greeting uses the name stored in PostgreSQL
+  ("Hello, Afnan!"), and the name survives an app restart with the saved session.
 - **Session persistence.** The JWT is stored in AsyncStorage, restored on cold
   start and re-validated against `/auth/me`. Logging out revokes the token
   server-side.
-- **Dashboard.** Total lent, total repaid, overdue amount, pending count, and the
-  three most urgent loans.
+- **Dashboard.** Total lent, outstanding (pending) amount, total repaid, overdue
+  amount, pending count, and the three most urgent loans. The outstanding amount
+  comes from the same backend summary as the other cards.
 - **Loan list.** All / Pending / Repaid filters, overdue highlighting, and a
-  "Mark as repaid" action with an optimistic-friendly reload.
-- **Add loan.** Name, amount and due date, with date shortcuts (today, +1 week,
-  +1 month), client-side validation and server field errors mapped back to the
-  inputs.
+  "Mark as repaid" action that asks for confirmation before changing data. The
+  client loads every page from the API, so counts and filters cover the complete
+  ledger rather than the first 50 rows.
+- **Add, edit and delete loans.** Name, amount and due date, with date shortcuts
+  (today, +1 week, +1 month), client-side validation and server field errors
+  mapped back to the inputs. Pending loans can be edited or deleted; repaid
+  loans are immutable so settled history and summary totals stay intact.
+- **Account view.** The dashboard account button shows the stored name, the
+  formatted phone number, and a confirmed logout. There is no profile editing.
 - **Money as decimal strings.** Amounts are `NUMERIC(12,2)` in PostgreSQL and
   strings in JSON — never JavaScript floats.
 - **User isolation.** Every loan query is scoped by `user_id`; another user's
@@ -55,11 +64,12 @@ MiniLedger/
 │  │  ├─ app.ts            express app (exported for Supertest)
 │  │  └─ server.ts         http listener
 │  ├─ sql/001_init.sql     idempotent schema (tables, checks, indexes, triggers)
+│  ├─ sql/002_add_user_name.sql  safe `ADD COLUMN` migration for display names
 │  ├─ scripts/             migrate, seed, reset
 │  └─ tests/               Jest + Supertest suites
 └─ mobile/                 Expo app
    └─ src/
-      ├─ app/              Expo Router routes (tabs, login, add-loan modal)
+      ├─ app/              Expo Router routes (tabs, login, add/edit loan, account)
       ├─ components/       Screen, Card, Button, TextField, LoanCard, …
       ├─ hooks/            useAuth (session), useLedger (summary + loans)
       ├─ services/         fetch wrapper + auth/loans/summary clients
@@ -149,7 +159,8 @@ URL it tried at the bottom of the login screen.
 
 ### 6. Sign in
 
-1. Enter a 10-digit Indian mobile number (any number starting with 6–9).
+1. Enter your full name and a 10-digit Indian mobile number (any number starting
+   with 6–9).
 2. Tap **Send OTP**.
 3. Read the code printed in the backend terminal:
 
@@ -157,8 +168,13 @@ URL it tried at the bottom of the login screen.
    [MiniLedger] MOCK OTP for +919876543210 -> 123456  (valid for 300s)
    ```
 
-4. Enter it (or tap the code on the "Development build" card when
-   `EXPOSE_OTP_IN_RESPONSE=true`) and tap **Verify & sign in**.
+4. Type it into the six OTP boxes (Backspace steps back, and pasting a 6-digit
+   code fills all boxes). You can also tap the code on the "Development build"
+   card when `EXPOSE_OTP_IN_RESPONSE=true`. Then tap **Verify & sign in**.
+
+The name is stored with the account and used for the dashboard greeting. Signing
+in again with the same number reuses the account and updates the stored name, so
+a typo can be corrected without creating a duplicate user.
 
 ---
 
@@ -171,6 +187,7 @@ All backend settings live in `server/.env` (see `server/.env.example`).
 | `PORT` / `HOST` | `4000` / `0.0.0.0` | Listener; `0.0.0.0` exposes it to the LAN |
 | `DATABASE_URL` | local `miniledger` DB | Application database |
 | `TEST_DATABASE_URL` | local `miniledger_test` DB | Used only by Jest |
+| `ALLOW_NON_TEST_DATABASE` | `false` | Safety override; tests refuse destructive setup unless the database name ends in `_test` |
 | `JWT_SECRET` | dev-only default | Signing key; **must** be set in production |
 | `JWT_EXPIRES_IN` | `7d` | Token lifetime |
 | `APP_TIMEZONE` | `Asia/Kolkata` | Defines "today" for the overdue rule |
@@ -200,13 +217,15 @@ Base URL: `/api/v1`. Every response uses an envelope:
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/request-otp` | – | Create a 6-digit OTP for a phone number |
+| POST | `/auth/request-otp` | – | Create a 6-digit OTP for `{ phoneNumber, name }` |
 | POST | `/auth/verify-otp` | – | Consume the OTP, create/find the user, return a JWT |
-| GET | `/auth/me` | Bearer | Current user (`id`, `phoneNumber`, `createdAt`) |
+| GET | `/auth/me` | Bearer | Current user (`id`, `phoneNumber`, `name`, `createdAt`) |
 | POST | `/auth/logout` | Bearer | Revokes the token used for the request |
 | GET | `/loans` | Bearer | List loans. Query: `status=all\|pending\|repaid`, `limit` (1–100, default 50), `offset` |
 | POST | `/loans` | Bearer | Create a loan → `201` |
 | GET | `/loans/:id` | Bearer | One loan |
+| PATCH | `/loans/:id` | Bearer | Update `friendName`, `amount` and/or `dueDate` on a pending loan |
+| DELETE | `/loans/:id` | Bearer | Delete a pending loan |
 | PATCH | `/loans/:id/repay` | Bearer | Mark a pending loan repaid |
 | GET | `/summary` | Bearer | Aggregates for the signed-in user |
 
@@ -245,7 +264,8 @@ Summary object:
 ```
 
 `totalLent` covers every loan ever created; `pendingAmount` and `overdueAmount`
-only cover unpaid loans.
+only cover unpaid loans. Only pending loans can be updated or deleted; repaid
+loans return `409 LOAN_NOT_EDITABLE` so historical totals cannot be rewritten.
 
 ### Example request flow
 
@@ -253,7 +273,7 @@ only cover unpaid loans.
 # 1. ask for a code (watch the server terminal)
 curl -X POST http://localhost:4000/api/v1/auth/request-otp \
   -H "Content-Type: application/json" \
-  -d '{"phoneNumber":"9876543210"}'
+  -d '{"phoneNumber":"9876543210","name":"Afnan Khan"}'
 
 # 2. exchange the code for a token
 curl -X POST http://localhost:4000/api/v1/auth/verify-otp \
@@ -284,6 +304,7 @@ curl -X POST http://localhost:4000/api/v1/loans \
 | `UNAUTHORIZED` / `INVALID_TOKEN` / `TOKEN_REVOKED` | 401 | Missing, invalid or revoked token |
 | `LOAN_NOT_FOUND` | 404 | Unknown loan, or one owned by another user |
 | `LOAN_ALREADY_REPAID` | 409 | Duplicate repay attempt |
+| `LOAN_NOT_EDITABLE` | 409 | Attempt to edit/delete a repaid loan |
 | `ROUTE_NOT_FOUND` | 404 | Unknown endpoint |
 | `INTERNAL_SERVER_ERROR` | 500 | Generic — no stack traces or SQL are returned |
 
@@ -303,6 +324,8 @@ curl -X POST http://localhost:4000/api/v1/loans \
   is not overdue.
 - "Today" is resolved in `APP_TIMEZONE` and passed into SQL as a parameter, so
   the rule is identical in production, in tests (forced to `UTC`) and on-device.
+  The dashboard/loan list pass the API's `asOfDate` to the loan form so the
+  "Today" and date shortcuts match the server's calendar day.
 - Summary aggregation runs entirely inside PostgreSQL on `numeric` values
   (`SUM(...) FILTER (...)`), so totals are exact.
 
@@ -312,6 +335,12 @@ curl -X POST http://localhost:4000/api/v1/loans \
   `miniledger`, audience `miniledger-mobile`, 7-day expiry) plus the user.
 - The token is sent as `Authorization: Bearer <token>`; the mobile app keeps it
   in AsyncStorage so a cold start stays signed in.
+- **Display names.** `users.name` is nullable so accounts created before the
+  `002_add_user_name.sql` migration stay valid. The name travels on the OTP
+  challenge and is written when the code is verified. A returning phone number
+  reuses its existing row and refreshes the stored name when a different one is
+  submitted. `GET /auth/me` returns the stored name (`null` for legacy rows), and
+  the app falls back to "Hello, friend!" when it is missing.
 - **Logout strategy: stateless JWT with a token version.** Each JWT carries a
   `ver` claim. `POST /auth/logout` increments `users.token_version`, so every
   token issued before that moment is rejected with `401 TOKEN_REVOKED`. This
@@ -339,7 +368,7 @@ curl -X POST http://localhost:4000/api/v1/loans \
 ```bash
 # backend
 cd server
-npm test              # 4 suites, 55 tests (Jest + Supertest, real PostgreSQL)
+npm test              # 4 suites, 85 tests (Jest + Supertest, real PostgreSQL)
 npm run typecheck     # tsc --noEmit
 
 # mobile
@@ -349,12 +378,16 @@ npx expo-doctor       # dependency/config health
 ```
 
 The test suite runs against `miniledger_test`, truncates the tables in
-`beforeAll`, and runs serially (`--runInBand`). Overdue boundaries are tested
-explicitly (yesterday, today, tomorrow) with `APP_TIMEZONE=UTC`.
+`beforeAll`, and runs serially (`--runInBand`). Before any migration or
+truncation, the setup refuses to continue unless the database name ends in
+`_test`; the `ALLOW_NON_TEST_DATABASE=true` override exists only for an
+intentional non-test database. Overdue boundaries are tested explicitly
+(yesterday, today, tomorrow) with `APP_TIMEZONE=UTC`.
 
 Coverage includes: OTP expiry/attempts/replay, token revocation, validation
-errors, cross-user access, duplicate repayment, decimal-exact aggregation,
-pagination/status filters and unknown routes.
+errors, cross-user access, update/delete ownership, repaid-loan immutability,
+duplicate repayment, decimal-exact aggregation, pagination/status filters and
+unknown routes.
 
 ---
 
@@ -377,6 +410,8 @@ pagination/status filters and unknown routes.
 - The OTP flow is a mock, by design.
 - No real-time sync: the app refetches when a screen gains focus or on pull-to-
   refresh.
-- Loans can only be created or marked repaid — no edit/delete yet.
+- Repaid loans cannot be edited or deleted; that is intentional to protect
+  settled history. A mis-entered loan must be corrected before repayment.
 - Single currency (INR) and Indian phone numbers.
-- The app icon/splash are still the Expo template assets.
+- The app icon/splash are still the Expo template assets, so they were left
+  unchanged rather than presenting template artwork as final branding.
