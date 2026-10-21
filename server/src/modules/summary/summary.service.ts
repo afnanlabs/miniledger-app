@@ -32,10 +32,12 @@ export async function getSummaryForUser(userId: string): Promise<Summary> {
 
   const row = await queryOne<SummaryRow>(
     `SELECT
-       COALESCE(SUM(amount), 0)::numeric(12,2)                                        AS total_lent,
-       COALESCE(SUM(amount) FILTER (WHERE status = 'repaid'), 0)::numeric(12,2)        AS total_repaid,
-       COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0)::numeric(12,2)       AS pending_amount,
-       COALESCE(SUM(amount) FILTER (WHERE status = 'pending' AND due_date < $2::date), 0)::numeric(12,2)
+       -- SUM(numeric) is unbounded; do not cast it back to NUMERIC(12,2), which
+       -- would overflow once a user has more than one maximum-value loan.
+       COALESCE(SUM(amount), 0)                                                        AS total_lent,
+       COALESCE(SUM(amount) FILTER (WHERE status = 'repaid'), 0)                        AS total_repaid,
+       COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0)                       AS pending_amount,
+       COALESCE(SUM(amount) FILTER (WHERE status = 'pending' AND due_date < $2::date), 0)
                                                                                                  AS overdue_amount,
        COUNT(*)::int                                                                  AS loan_count,
        COUNT(*) FILTER (WHERE status = 'pending')::int                                 AS pending_count,

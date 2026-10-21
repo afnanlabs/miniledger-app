@@ -96,6 +96,25 @@ describe('GET /api/v1/summary', () => {
     expect(response.body.data.overdueCount).toBe(0);
   });
 
+  it('treats a loan due tomorrow as not overdue', async () => {
+    const user = await signUp();
+
+    await createLoan(user.token, {
+      friendName: 'Due tomorrow',
+      amount: '250.00',
+      dueDate: dateOffset(1),
+    });
+
+    const response = await request(app)
+      .get('/api/v1/summary')
+      .set(...authHeader(user.token))
+      .expect(200);
+
+    expect(response.body.data.overdueAmount).toBe('0.00');
+    expect(response.body.data.pendingAmount).toBe('250.00');
+    expect(response.body.data.overdueCount).toBe(0);
+  });
+
   it('treats a loan due yesterday as overdue', async () => {
     const user = await signUp();
 
@@ -176,6 +195,37 @@ describe('GET /api/v1/summary', () => {
       .expect(200);
 
     expect(response.body.data.totalLent).toBe('0.30');
+  });
+
+  it('aggregates multiple maximum-value loans without numeric overflow', async () => {
+    const user = await signUp();
+
+    // Two maximum NUMERIC(12,2) amounts add up beyond NUMERIC(12,2). The summary
+    // must use an unbounded numeric aggregate instead of casting the total back.
+    await createLoan(user.token, {
+      friendName: 'Maximum A',
+      amount: '9999999999.99',
+      dueDate: dateOffset(-1),
+    });
+    await createLoan(user.token, {
+      friendName: 'Maximum B',
+      amount: '9999999999.99',
+      dueDate: dateOffset(-1),
+    });
+
+    const response = await request(app)
+      .get('/api/v1/summary')
+      .set(...authHeader(user.token))
+      .expect(200);
+
+    expect(response.body.data).toMatchObject({
+      totalLent: '19999999999.98',
+      pendingAmount: '19999999999.98',
+      overdueAmount: '19999999999.98',
+      totalRepaid: '0.00',
+      loanCount: 2,
+      overdueCount: 2,
+    });
   });
 
   it('requires authentication', async () => {
