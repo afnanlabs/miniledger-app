@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,25 +15,121 @@ import { AppText } from '../components/AppText';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { Screen } from '../components/Screen';
-import { ErrorBanner } from '../components/StateView';
+import { ErrorBanner, ErrorState, LoadingState } from '../components/StateView';
 import { TextField } from '../components/TextField';
 import { colors, radius, spacing } from '../constants/theme';
+import { useAuth } from '../hooks/useAuth';
 import { ApiError, fieldErrors } from '../services/api';
 import { loansService } from '../services/loans';
-import { addDaysIso, isValidDateInput, todayIso } from '../utils/format';
+import {
+  addDaysIso,
+  formatInr,
+  isValidDateInput,
+  todayIso,
+} from '../utils/format';
 
 const AMOUNT_PATTERN = /^\d{1,10}(\.\d{1,2})?$/;
 
+interface FormValues {
+  friendName: string;
+  amount: string;
+  dueDate: string;
+}
+
+/**
+ * One form for creating and editing. Editing is reached with an `id` route
+ * param; the same validation and field layout is reused so the two flows stay
+ * consistent.
+ */
 export default function AddLoanScreen() {
   const router = useRouter();
+  const { status } = useAuth();
+  const params = useLocalSearchParams<{ id?: string; asOfDate?: string }>();
+  const loanId = typeof params.id === 'string' ? params.id : undefined;
+  const isEditing = Boolean(loanId);
+
+  // The dashboard/list pass the server's "today" so the date shortcuts match
+  // the API's overdue rule even when the phone is in another timezone.
+  const serverToday =
+    typeof params.asOfDate === 'string' && isValidDateInput(params.asOfDate)
+      ? params.asOfDate
+      : todayIso();
 
   const [friendName, setFriendName] = useState('');
   const [amount, setAmount] = useState('');
-  const [dueDate, setDueDate] = useState(() => addDaysIso(todayIso(), 7));
+  const [dueDate, setDueDate] = useState(() => addDaysIso(serverToday, 7));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [loading, setLoading] = useState(isEditing);
+  const [loadError, setLoadError] = useState('');
+
+  const initialValues = useRef<FormValues>({
+    friendName: '',
+    amount: '',
+    dueDate: addDaysIso(serverToday, 7),
+  });
+  const backTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (backTimer.current) clearTimeout(backTimer.current);
+    };
+  }, []);
+
+  // Load the existing loan when editing. Only pending loans may be changed.
+  useEffect(() => {
+    if (!loanId) return undefined;
+
+    let cancelled = false;
+    setLoading(true);
+    setLoadError('');
+
+    loansService
+      .get(loanId)
+      .then((loan) => {
+        if (cancelled) return;
+        if (loan.status !== 'pending') {
+          setLoadError('Repaid loans cannot be edited or deleted.');
+          setLoading(false);
+          return;
+        }
+
+        const values: FormValues = {
+          friendName: loan.friendName,
+          amount: loan.amount,
+          dueDate: loan.dueDate,
+        };
+        initialValues.current = values;
+        setFriendName(values.friendName);
+        setAmount(values.amount);
+        setDueDate(values.dueDate);
+        setLoading(false);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setLoadError(
+          error instanceof ApiError
+            ? error.message
+            : 'Could not load this loan. Please go back and try again.',
+        );
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loanId]);
+
+  const isDirty =
+    friendName !== initialValues.current.friendName ||
+    amount !== initialValues.current.amount ||
+    dueDate !== initialValues.current.dueDate;
 
   function handleAmountChange(value: string) {
     const cleaned = value.replace(/[^0-9.]/g, '');
@@ -45,6 +142,20 @@ export default function AddLoanScreen() {
   function selectDueDate(value: string) {
     setDueDate(value);
     setErrors((current) => ({ ...current, dueDate: '' }));
+  }
+
+  function requestClose() {
+    if (busy || saved || deleting) return;
+
+    if (!isDirty) {
+      router.back();
+      return;
+    }
+
+    Alert.alert('Discard changes?', 'Your changes will not be saved.', [
+      { text: 'Keep editing', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: () => router.back() },
+    ]);
   }
 
   async function submit() {
@@ -72,15 +183,28 @@ export default function AddLoanScreen() {
     setFormError('');
 
     try {
-      await loansService.create({
+      const input = {
         friendName: trimmedName,
         amount: trimmedAmount,
         dueDate,
-      });
+      };
+
+      if (loanId) {
+        await loansService.update(loanId, input);
+      } else {
+        await loansService.create(input);
+      }
+
+      if (!mounted.current) return;
       setSaved(true);
+      setBusy(false);
       // Give the user a moment to see the confirmation before going back.
-      setTimeout(() => router.back(), 550);
+      backTimer.current = setTimeout(() => {
+        backTimer.current = null;
+        router.back();
+      }, 650);
     } catch (error) {
+      if (!mounted.current) return;
       if (error instanceof ApiError) {
         const mapped = fieldErrors(error);
         setErrors(mapped);
@@ -92,7 +216,92 @@ export default function AddLoanScreen() {
     }
   }
 
-  const today = todayIso();
+  async function deleteLoan() {
+    if (!loanId) return;
+
+    setDeleting(true);
+    setFormError('');
+
+    try {
+      await loansService.remove(loanId);
+      if (!mounted.current) return;
+      router.back();
+    } catch (error) {
+      if (!mounted.current) return;
+      setFormError(
+        error instanceof ApiError
+          ? error.message
+          : 'Something went wrong while deleting the loan. Please try again.',
+      );
+      setDeleting(false);
+    }
+  }
+
+  function confirmDelete() {
+    if (!loanId || busy || saved || deleting) return;
+
+    const describeAmount = AMOUNT_PATTERN.test(amount.trim()) ? formatInr(amount.trim()) : 'This loan';
+    Alert.alert(
+      'Delete this loan?',
+      `${describeAmount} from ${friendName.trim() || 'this friend'} will be permanently removed. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete loan', style: 'destructive', onPress: () => void deleteLoan() },
+      ],
+    );
+  }
+
+  const closeDisabled = busy || saved || deleting;
+  const title = isEditing ? 'Edit loan' : 'New loan';
+
+  function renderHeader() {
+    return (
+      <View style={styles.header}>
+        <Pressable
+          onPress={requestClose}
+          disabled={closeDisabled}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel and close"
+          accessibilityState={{ disabled: closeDisabled }}
+          hitSlop={10}
+          style={({ pressed }) => [
+            styles.closeButton,
+            pressed && !closeDisabled && styles.closeButtonPressed,
+          ]}
+        >
+          <Ionicons name="close" size={22} color={colors.inkMuted} />
+        </Pressable>
+
+        <AppText variant="subheading">{title}</AppText>
+
+        <View style={styles.closeButton} />
+      </View>
+    );
+  }
+
+  // A revoked session while this modal is open should return to sign-in rather
+  // than leaving an unusable form on top of the tabs.
+  if (status === 'signedOut') {
+    return <Redirect href="/login" />;
+  }
+
+  if (loading) {
+    return (
+      <Screen edges={['top', 'bottom']}>
+        {renderHeader()}
+        <LoadingState message="Loading loan…" />
+      </Screen>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Screen edges={['top', 'bottom']}>
+        {renderHeader()}
+        <ErrorState message={loadError} />
+      </Screen>
+    );
+  }
 
   return (
     <Screen edges={['top', 'bottom']}>
@@ -100,21 +309,7 @@ export default function AddLoanScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel and close"
-            hitSlop={10}
-            style={({ pressed }) => [styles.closeButton, pressed && styles.closeButtonPressed]}
-          >
-            <Ionicons name="close" size={22} color={colors.inkMuted} />
-          </Pressable>
-
-          <AppText variant="subheading">New loan</AppText>
-
-          <View style={styles.closeButton} />
-        </View>
+        {renderHeader()}
 
         <ScrollView
           contentContainerStyle={styles.content}
@@ -122,7 +317,9 @@ export default function AddLoanScreen() {
           showsVerticalScrollIndicator={false}
         >
           <AppText variant="small" color={colors.inkMuted} style={styles.intro}>
-            Record money you have lent. It stays pending until you mark it as repaid.
+            {isEditing
+              ? 'Update the amount, friend, or due date. Only pending loans can be changed.'
+              : 'Record money you have lent. It stays pending until you mark it as repaid.'}
           </AppText>
 
           {formError ? (
@@ -174,20 +371,20 @@ export default function AddLoanScreen() {
             <View style={styles.chips}>
               <DateChip
                 label="Today"
-                value={today}
-                selected={dueDate === today}
+                value={serverToday}
+                selected={dueDate === serverToday}
                 onPress={selectDueDate}
               />
               <DateChip
                 label="In 1 week"
-                value={addDaysIso(today, 7)}
-                selected={dueDate === addDaysIso(today, 7)}
+                value={addDaysIso(serverToday, 7)}
+                selected={dueDate === addDaysIso(serverToday, 7)}
                 onPress={selectDueDate}
               />
               <DateChip
                 label="In 1 month"
-                value={addDaysIso(today, 30)}
-                selected={dueDate === addDaysIso(today, 30)}
+                value={addDaysIso(serverToday, 30)}
+                selected={dueDate === addDaysIso(serverToday, 30)}
                 onPress={selectDueDate}
               />
             </View>
@@ -195,19 +392,39 @@ export default function AddLoanScreen() {
 
           <View style={styles.hint}>
             <Ionicons name="information-circle-outline" size={16} color={colors.inkFaint} />
-            <AppText variant="caption" color={colors.inkFaint} style={styles.hintText}>
+            <AppText variant="caption" color={colors.inkMuted} style={styles.hintText}>
               A loan becomes overdue the day after its due date. Repaid loans are never counted
               as overdue.
             </AppText>
           </View>
+
+          {isEditing ? (
+            <Button
+              variant="danger"
+              label="Delete loan"
+              onPress={confirmDelete}
+              loading={deleting}
+              disabled={busy || saved}
+              style={styles.deleteButton}
+              accessibilityHint="Permanently removes this pending loan"
+            />
+          ) : null}
         </ScrollView>
 
         <View style={styles.footer}>
           <Button
-            label={saved ? 'Loan added ✓' : 'Add loan'}
+            label={
+              saved
+                ? isEditing
+                  ? 'Changes saved ✓'
+                  : 'Loan added ✓'
+                : isEditing
+                  ? 'Save changes'
+                  : 'Add loan'
+            }
             onPress={() => void submit()}
             loading={busy}
-            disabled={saved}
+            disabled={saved || deleting}
           />
         </View>
       </KeyboardAvoidingView>
@@ -228,6 +445,7 @@ function DateChip({ label, value, selected, onPress }: DateChipProps) {
       onPress={() => onPress(value)}
       accessibilityRole="button"
       accessibilityState={{ selected }}
+      accessibilityLabel={label}
       style={[styles.chip, selected && styles.chipSelected]}
     >
       <AppText variant="captionStrong" color={selected ? colors.primary : colors.inkMuted}>
@@ -251,8 +469,8 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   closeButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -286,7 +504,7 @@ const styles = StyleSheet.create({
   },
   chip: {
     paddingHorizontal: spacing.md,
-    minHeight: 40,
+    minHeight: 44,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
@@ -308,6 +526,9 @@ const styles = StyleSheet.create({
   hintText: {
     flex: 1,
     lineHeight: 17,
+  },
+  deleteButton: {
+    marginTop: spacing.xl,
   },
   footer: {
     paddingHorizontal: spacing.xl,

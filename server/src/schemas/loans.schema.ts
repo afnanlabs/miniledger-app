@@ -37,9 +37,20 @@ export const createLoanSchema = z.object({
   dueDate: dueDateSchema,
 });
 
+/**
+ * PATCH accepts any subset of the create fields, but an empty body is not a
+ * meaningful update and is rejected instead of silently doing nothing.
+ */
+export const updateLoanSchema = createLoanSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one field to update',
+  });
+
 export const listLoansQuerySchema = paginationSchema.extend({
   status: z.enum(['pending', 'repaid', 'all']).default('all'),
 });
 
 export type CreateLoanInput = z.infer<typeof createLoanSchema>;
+export type UpdateLoanInput = z.infer<typeof updateLoanSchema>;
 export type ListLoansQuery = z.infer<typeof listLoansQuerySchema>;

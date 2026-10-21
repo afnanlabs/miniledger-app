@@ -65,6 +65,21 @@ export function formatDate(dateString: string): string {
   return `${day} ${MONTHS[month - 1]} ${year}`;
 }
 
+/**
+ * Formats an ISO timestamp (e.g. `repaidAt`) using the device's local calendar
+ * day. Slicing the UTC string would show the previous day for late-evening
+ * repayments in positive-offset timezones.
+ */
+export function formatDateFromTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp.slice(0, 10);
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return formatDate(`${year}-${month}-${day}`);
+}
+
 /** "+919876543210" -> "+91 98765 43210" */
 export function formatPhone(phoneNumber: string): string {
   const digits = phoneNumber.replace(/\D/g, '');
@@ -112,16 +127,21 @@ export function isValidDateInput(value: string): boolean {
   );
 }
 
-export function formatDueLabel(loan: {
-  isOverdue: boolean;
-  daysOverdue: number;
-  dueDate: string;
-  status: string;
-}): string {
+export function formatDueLabel(
+  loan: {
+    isOverdue: boolean;
+    daysOverdue: number;
+    dueDate: string;
+    status: string;
+  },
+  today: string = todayIso(),
+): string {
   if (loan.status === 'repaid') return `Due ${formatDate(loan.dueDate)}`;
   if (loan.isOverdue) {
     const days = loan.daysOverdue;
     return days === 1 ? 'Overdue by 1 day' : `Overdue by ${days} days`;
   }
+  if (loan.dueDate === today) return 'Due today';
+  if (loan.dueDate === addDaysIso(today, 1)) return 'Due tomorrow';
   return `Due ${formatDate(loan.dueDate)}`;
 }

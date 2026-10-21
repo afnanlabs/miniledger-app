@@ -43,6 +43,8 @@ export function createApp(): Express {
           'GET    /api/v1/loans',
           'POST   /api/v1/loans',
           'GET    /api/v1/loans/:id',
+          'PATCH  /api/v1/loans/:id',
+          'DELETE /api/v1/loans/:id',
           'PATCH  /api/v1/loans/:id/repay',
           'GET    /api/v1/summary',
         ],

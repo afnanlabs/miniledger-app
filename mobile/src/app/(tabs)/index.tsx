@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback } from "react";
 import {
   Alert,
   Pressable,
@@ -8,29 +8,45 @@ import {
   ScrollView,
   StyleSheet,
   View,
-} from 'react-native';
+} from "react-native";
 
-import { AppText } from '../../components/AppText';
-import { Button } from '../../components/Button';
-import { Card } from '../../components/Card';
-import { LoanCard } from '../../components/LoanCard';
-import { Screen } from '../../components/Screen';
-import { SummaryCard } from '../../components/SummaryCard';
-import { ErrorBanner, ErrorState, LoadingState } from '../../components/StateView';
-import { API_HOST_LABEL } from '../../constants/config';
-import { colors, radius, spacing } from '../../constants/theme';
-import { useAuth } from '../../hooks/useAuth';
-import { useLedger } from '../../hooks/useLedger';
-import { ApiError } from '../../services/api';
-import { formatInrCompact } from '../../utils/format';
+import { AppText } from "../../components/AppText";
+import { Button } from "../../components/Button";
+import { Card } from "../../components/Card";
+import { LoanCard } from "../../components/LoanCard";
+import { Screen } from "../../components/Screen";
+import { SummaryCard } from "../../components/SummaryCard";
+import {
+  ErrorBanner,
+  ErrorState,
+  LoadingState,
+} from "../../components/StateView";
+import { API_HOST_LABEL } from "../../constants/config";
+import { colors, radius, spacing } from "../../constants/theme";
+import { useAuth } from "../../hooks/useAuth";
+import { useLedger } from "../../hooks/useLedger";
+import { ApiError } from "../../services/api";
+import type { Loan } from "../../types";
+import { confirmRepayment } from "../../utils/confirm";
+import { formatInrCompact } from "../../utils/format";
 
 const RECENT_LIMIT = 3;
 
 export default function DashboardScreen() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
-  const { summary, loans, status, errorMessage, refreshing, repayingId, refresh, reload, repay } =
-    useLedger();
+  const {
+    summary,
+    loans,
+    asOfDate,
+    status,
+    errorMessage,
+    refreshing,
+    repayingId,
+    refresh,
+    reload,
+    repay,
+  } = useLedger();
 
   useFocusEffect(
     useCallback(() => {
@@ -38,38 +54,56 @@ export default function DashboardScreen() {
     }, [reload]),
   );
 
-  const confirmLogout = useCallback(() => {
-    Alert.alert('Log out?', 'You will need a new OTP to sign back in.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Log out', style: 'destructive', onPress: () => void signOut() },
-    ]);
-  }, [signOut]);
+  const openAccount = useCallback(() => {
+    router.push('/account');
+  }, [router]);
 
   const handleRepay = useCallback(
-    async (loanId: string) => {
-      try {
-        await repay(loanId);
-      } catch (error) {
-        Alert.alert(
-          'Could not mark as repaid',
-          error instanceof ApiError ? error.message : 'Please try again.',
-        );
-      }
+    (loan: Loan) => {
+      confirmRepayment(loan, () => {
+        void (async () => {
+          try {
+            await repay(loan.id);
+          } catch (error) {
+            Alert.alert(
+              "Could not mark as repaid",
+              error instanceof ApiError ? error.message : "Please try again.",
+            );
+          }
+        })();
+      });
     },
     [repay],
   );
 
-  if (status === 'loading' && !summary) {
+  const handleEdit = useCallback(
+    (loan: Loan) => {
+      router.push({
+        pathname: "/add-loan",
+        params: { id: loan.id, ...(asOfDate ? { asOfDate } : {}) },
+      });
+    },
+    [asOfDate, router],
+  );
+
+  const openAddLoan = useCallback(() => {
+    router.push({
+      pathname: "/add-loan",
+      params: asOfDate ? { asOfDate } : {},
+    });
+  }, [asOfDate, router]);
+
+  if (status === "loading" && !summary) {
     return (
-      <Screen edges={['top']}>
+      <Screen edges={["top"]}>
         <LoadingState />
       </Screen>
     );
   }
 
-  if (status === 'error' && !summary) {
+  if (status === "error" && !summary) {
     return (
-      <Screen edges={['top']}>
+      <Screen edges={["top"]}>
         <ErrorState message={errorMessage} onRetry={() => void reload()} />
       </Screen>
     );
@@ -77,8 +111,14 @@ export default function DashboardScreen() {
 
   const recentLoans = loans.slice(0, RECENT_LIMIT);
 
+  // Use the first word of the stored name ("Afnan Khan" -> "Afnan"). Accounts
+  // created before names were collected fall back to a neutral greeting instead
+  // of rendering an empty or "null" name.
+  const firstName = user?.name?.trim().split(/\s+/)[0] ?? "";
+  const greeting = firstName ? `Hello, ${firstName}!` : "Hello, friend!";
+
   return (
-    <Screen edges={['top']}>
+    <Screen edges={["top"]}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -96,24 +136,36 @@ export default function DashboardScreen() {
             <AppText variant="overline" color={colors.inkFaint}>
               YOUR LEDGER
             </AppText>
-            <AppText variant="title" style={styles.greeting}>
-              Hello
+            <AppText
+              variant="title"
+              style={styles.greeting}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
+              {greeting}
             </AppText>
-            {user ? (
-              <AppText variant="small" color={colors.inkMuted}>
-                {user.phoneNumber}
-              </AppText>
-            ) : null}
+            <AppText variant="small" color={colors.inkMuted}>
+              Here&apos;s where your money stands.
+            </AppText>
           </View>
 
           <Pressable
-            onPress={confirmLogout}
+            onPress={openAccount}
             accessibilityRole="button"
-            accessibilityLabel="Log out"
+            accessibilityLabel="Account"
+            accessibilityHint="View your account details or log out"
             hitSlop={10}
-            style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed && styles.iconButtonPressed,
+            ]}
           >
-            <Ionicons name="log-out-outline" size={22} color={colors.inkMuted} />
+            <Ionicons
+              name="person-outline"
+              size={21}
+              color={colors.inkMuted}
+            />
           </Pressable>
         </View>
 
@@ -139,51 +191,72 @@ export default function DashboardScreen() {
             adjustsFontSizeToFit
             minimumFontScale={0.6}
           >
-            {formatInrCompact(summary?.totalLent ?? '0')}
+            {formatInrCompact(summary?.totalLent ?? "0")}
           </AppText>
-          <AppText variant="caption" color={colors.inkMuted} style={styles.heroMeta}>
+          <AppText
+            variant="caption"
+            color={colors.inkMuted}
+            style={styles.heroMeta}
+          >
             {summary?.loanCount === 1
-              ? '1 loan in your ledger'
+              ? "1 loan in your ledger"
               : `${summary?.loanCount ?? 0} loans in your ledger`}
-            {'  ·  '}
+            {"  ·  "}
             {summary?.pendingCount ?? 0} pending
           </AppText>
+
+          <View style={styles.outstandingRow}>
+            <AppText variant="captionStrong" color={colors.inkMuted}>
+              OUTSTANDING
+            </AppText>
+            <AppText
+              variant="bodyStrong"
+              color={colors.primary}
+              style={styles.outstandingAmount}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              {formatInrCompact(summary?.pendingAmount ?? "0")}
+            </AppText>
+          </View>
         </Card>
 
         <View style={styles.summaryRow}>
           <SummaryCard
             label="TOTAL REPAID"
-            value={formatInrCompact(summary?.totalRepaid ?? '0')}
+            value={formatInrCompact(summary?.totalRepaid ?? "0")}
             caption={`${summary?.repaidCount ?? 0} settled`}
             tone="success"
           />
           <SummaryCard
             label="OVERDUE"
-            value={formatInrCompact(summary?.overdueAmount ?? '0')}
+            value={formatInrCompact(summary?.overdueAmount ?? "0")}
             caption={
               summary?.overdueCount
                 ? `${summary.overdueCount} past due`
-                : 'Nothing overdue'
+                : "Nothing overdue"
             }
-            tone={summary?.overdueCount ? 'danger' : 'default'}
+            tone={summary?.overdueCount ? "danger" : "default"}
           />
         </View>
 
         <Button
           label="Add loan"
-          onPress={() => router.push('/add-loan')}
+          onPress={openAddLoan}
           style={styles.addButton}
           accessibilityHint="Opens a form to record money you lent to a friend"
         />
 
         <View style={styles.sectionHeader}>
-          <AppText variant="subheading">Recent loans</AppText>
+          <AppText variant="subheading">Up next</AppText>
           {loans.length > 0 ? (
             <Pressable
-              onPress={() => router.push('/loans')}
+              onPress={() => router.push("/loans")}
               accessibilityRole="button"
               accessibilityLabel="View all loans"
               hitSlop={8}
+              style={styles.viewAllButton}
             >
               <AppText variant="smallStrong" color={colors.primary}>
                 View all
@@ -195,18 +268,27 @@ export default function DashboardScreen() {
         {recentLoans.length === 0 ? (
           <Card variant="plain" style={styles.emptyCard}>
             <View style={styles.emptyIcon}>
-              <Ionicons name="receipt-outline" size={22} color={colors.primary} />
+              <Ionicons
+                name="receipt-outline"
+                size={22}
+                color={colors.primary}
+              />
             </View>
             <AppText variant="bodyStrong" style={styles.emptyTitle}>
               No loans yet
             </AppText>
-            <AppText variant="small" color={colors.inkMuted} style={styles.emptyCopy}>
-              Add the first amount you lent and MiniLedger will keep an eye on the due date.
+            <AppText
+              variant="small"
+              color={colors.inkMuted}
+              style={styles.emptyCopy}
+            >
+              Add the first amount you lent and MiniLedger will keep an eye on
+              the due date.
             </AppText>
             <Button
               label="Add your first loan"
               variant="secondary"
-              onPress={() => router.push('/add-loan')}
+              onPress={openAddLoan}
               style={styles.emptyAction}
             />
           </Card>
@@ -217,14 +299,20 @@ export default function DashboardScreen() {
                 key={loan.id}
                 loan={loan}
                 onRepay={handleRepay}
+                onEdit={handleEdit}
+                today={asOfDate || undefined}
                 repaying={repayingId === loan.id}
               />
             ))}
           </View>
         )}
 
-        <AppText variant="caption" color={colors.inkFaint} style={styles.footer}>
-          Pull down to refresh · API {API_HOST_LABEL}
+        <AppText
+          variant="caption"
+          color={colors.inkFaint}
+          style={styles.footer}
+        >
+          Pull down to refresh{__DEV__ ? ` · API ${API_HOST_LABEL}` : ""}
         </AppText>
       </ScrollView>
     </Screen>
@@ -238,9 +326,9 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxxl,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
     marginBottom: spacing.xl,
   },
   headerText: {
@@ -256,8 +344,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   iconButtonPressed: {
     backgroundColor: colors.surfaceMuted,
@@ -269,17 +357,17 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xl,
   },
   heroTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   heroBadge: {
     width: 26,
     height: 26,
     borderRadius: radius.pill,
     backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   heroAmount: {
     marginTop: spacing.sm,
@@ -287,8 +375,23 @@ const styles = StyleSheet.create({
   heroMeta: {
     marginTop: spacing.xs + 2,
   },
+  outstandingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primarySoft,
+  },
+  outstandingAmount: {
+    flexShrink: 1,
+    marginLeft: spacing.md,
+    textAlign: "right",
+  },
   summaryRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.md,
     marginTop: spacing.md,
   },
@@ -296,17 +399,21 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
   },
   sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: spacing.xxl,
     marginBottom: spacing.md,
+  },
+  viewAllButton: {
+    minHeight: 44,
+    justifyContent: "center",
   },
   loanList: {
     gap: spacing.md,
   },
   emptyCard: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: spacing.xxl,
   },
   emptyIcon: {
@@ -314,15 +421,15 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: radius.pill,
     backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: spacing.md,
   },
   emptyTitle: {
     marginBottom: spacing.xs,
   },
   emptyCopy: {
-    textAlign: 'center',
+    textAlign: "center",
     lineHeight: 20,
     maxWidth: 260,
   },
@@ -330,7 +437,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   footer: {
-    textAlign: 'center',
+    textAlign: "center",
     marginTop: spacing.xxl,
   },
 });

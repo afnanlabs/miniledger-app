@@ -125,6 +125,63 @@ export async function insertLoan(params: {
   return created;
 }
 
+export interface UpdateLoanFields {
+  friendName?: string;
+  amount?: string;
+  dueDate?: string;
+}
+
+/**
+ * Updates only a pending loan. Repaid loans are historical records and are
+ * intentionally immutable, so the status guard is part of the SQL statement.
+ */
+export async function updatePendingLoan(
+  userId: string,
+  loanId: string,
+  fields: UpdateLoanFields,
+  today: string,
+): Promise<LoanRow | null> {
+  const assignments: string[] = [];
+  const params: unknown[] = [loanId, userId];
+
+  if (fields.friendName !== undefined) {
+    params.push(fields.friendName);
+    assignments.push(`friend_name = $${params.length}`);
+  }
+  if (fields.amount !== undefined) {
+    params.push(fields.amount);
+    assignments.push(`amount = $${params.length}`);
+  }
+  if (fields.dueDate !== undefined) {
+    params.push(fields.dueDate);
+    assignments.push(`due_date = $${params.length}::date`);
+  }
+
+  if (assignments.length === 0) return null;
+
+  params.push(today);
+  const todayRef = `$${params.length}`;
+
+  return queryOne<LoanRow>(
+    `UPDATE loans
+     SET ${assignments.join(', ')}, updated_at = now()
+     WHERE id = $1 AND user_id = $2 AND status = 'pending'
+     RETURNING ${LOAN_COLUMNS}, ${overdueColumns(todayRef)}`,
+    params,
+  );
+}
+
+/** Deletes only a pending loan; repaid history cannot be removed. */
+export async function deletePendingLoan(userId: string, loanId: string): Promise<boolean> {
+  const rows = await query<{ id: string }>(
+    `DELETE FROM loans
+     WHERE id = $1 AND user_id = $2 AND status = 'pending'
+     RETURNING id`,
+    [loanId, userId],
+  );
+  return rows.length > 0;
+}
+
 /**
  * Marks a pending loan as repaid.
  *

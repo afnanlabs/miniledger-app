@@ -4,11 +4,14 @@ import { toMoneyString } from '../../utils/money';
 import { today } from '../../utils/clock';
 import type { LoanView, LoanStatus } from '../../types';
 import {
+  deletePendingLoan,
   findLoanById,
   insertLoan,
   listLoans,
   markLoanRepaid,
+  updatePendingLoan,
   type LoanRow,
+  type UpdateLoanFields,
 } from './loans.repository';
 
 export function toLoanView(row: LoanRow): LoanView {
@@ -101,6 +104,48 @@ export async function repayLoanForUser(userId: string, loanId: string): Promise<
   }
 
   throw AppError.conflict('This loan has already been marked as repaid.', 'LOAN_ALREADY_REPAID');
+}
+
+/**
+ * Repaid loans are immutable: changing or deleting them would rewrite settled
+ * history and the financial summary. They must be corrected before repayment.
+ */
+export async function updateLoanForUser(
+  userId: string,
+  loanId: string,
+  fields: UpdateLoanFields,
+): Promise<LoanView> {
+  const asOfDate = today();
+  const updated = await updatePendingLoan(userId, loanId, fields, asOfDate);
+
+  if (updated) {
+    return toLoanView(updated);
+  }
+
+  const existing = await findLoanById(userId, loanId, asOfDate);
+  if (!existing) {
+    throw AppError.notFound('Loan not found.', 'LOAN_NOT_FOUND');
+  }
+
+  throw AppError.conflict(
+    'Repaid loans cannot be edited. Create a new loan instead.',
+    'LOAN_NOT_EDITABLE',
+  );
+}
+
+export async function deleteLoanForUser(userId: string, loanId: string): Promise<void> {
+  const deleted = await deletePendingLoan(userId, loanId);
+  if (deleted) return;
+
+  const existing = await findLoanById(userId, loanId, today());
+  if (!existing) {
+    throw AppError.notFound('Loan not found.', 'LOAN_NOT_FOUND');
+  }
+
+  throw AppError.conflict(
+    'Repaid loans cannot be deleted. They are part of your repayment history.',
+    'LOAN_NOT_EDITABLE',
+  );
 }
 
 export type { LoanStatus };

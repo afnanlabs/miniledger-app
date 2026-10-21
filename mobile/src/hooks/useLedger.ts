@@ -10,6 +10,8 @@ type LoadStatus = 'loading' | 'ready' | 'error';
 interface UseLedgerResult {
   summary: Summary | null;
   loans: Loan[];
+  /** Server calendar date used by overdue labels and date shortcuts. */
+  asOfDate: string;
   status: LoadStatus;
   errorMessage: string;
   refreshing: boolean;
@@ -47,7 +49,7 @@ export function useLedger(): UseLedgerResult {
     try {
       const [nextSummary, nextLoans] = await Promise.all([
         summaryService.get(),
-        loansService.list(),
+        loansService.listAll(),
       ]);
 
       if (!mounted.current || requestId.current !== id) return;
@@ -82,7 +84,7 @@ export function useLedger(): UseLedgerResult {
         await loansService.repay(loanId);
         const [nextSummary, nextLoans] = await Promise.all([
           summaryService.get(),
-          loansService.list(),
+          loansService.listAll(),
         ]);
         if (!mounted.current) return;
         setSummary(nextSummary);
@@ -107,6 +109,7 @@ export function useLedger(): UseLedgerResult {
   return {
     summary,
     loans,
+    asOfDate: summary?.asOfDate ?? '',
     status,
     errorMessage,
     refreshing,

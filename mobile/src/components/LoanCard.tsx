@@ -5,16 +5,31 @@ import { Badge } from './Badge';
 import { Card } from './Card';
 import { colors, radius, spacing } from '../constants/theme';
 import type { Loan } from '../types';
-import { formatDueLabel, formatInr, formatDate, initials } from '../utils/format';
+import {
+  formatDateFromTimestamp,
+  formatDueLabel,
+  formatInr,
+  initials,
+} from '../utils/format';
 
 interface LoanCardProps {
   loan: Loan;
-  onRepay: (loanId: string) => void;
+  onRepay: (loan: Loan) => void;
+  onEdit?: (loan: Loan) => void;
+  /** Server "today" (YYYY-MM-DD) so due labels match the API's overdue rule. */
+  today?: string;
   repaying?: boolean;
   showRepayButton?: boolean;
 }
 
-export function LoanCard({ loan, onRepay, repaying = false, showRepayButton = true }: LoanCardProps) {
+export function LoanCard({
+  loan,
+  onRepay,
+  onEdit,
+  today,
+  repaying = false,
+  showRepayButton = true,
+}: LoanCardProps) {
   const pending = loan.status === 'pending';
   const overdue = pending && loan.isOverdue;
 
@@ -38,7 +53,7 @@ export function LoanCard({ loan, onRepay, repaying = false, showRepayButton = tr
             color={overdue ? colors.danger : colors.inkFaint}
             style={styles.dueLabel}
           >
-            {formatDueLabel(loan)}
+            {formatDueLabel(loan, today)}
           </AppText>
         </View>
 
@@ -47,6 +62,8 @@ export function LoanCard({ loan, onRepay, repaying = false, showRepayButton = tr
             variant="amount"
             color={pending ? colors.ink : colors.inkMuted}
             numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.65}
           >
             {formatInr(loan.amount)}
           </AppText>
@@ -60,31 +77,53 @@ export function LoanCard({ loan, onRepay, repaying = false, showRepayButton = tr
 
       {!pending && loan.repaidAt ? (
         <AppText variant="caption" color={colors.inkFaint} style={styles.repaidNote}>
-          Marked repaid on {formatDate(loan.repaidAt.slice(0, 10))}
+          Marked repaid on {formatDateFromTimestamp(loan.repaidAt)}
         </AppText>
       ) : null}
 
-      {pending && showRepayButton ? (
-        <Pressable
-          onPress={() => onRepay(loan.id)}
-          disabled={repaying}
-          accessibilityRole="button"
-          accessibilityLabel={`Mark ${loan.friendName}'s loan as repaid`}
-          accessibilityState={{ disabled: repaying, busy: repaying }}
-          style={({ pressed }) => [
-            styles.repayButton,
-            pressed && !repaying ? styles.repayPressed : null,
-            repaying ? styles.repayBusy : null,
-          ]}
-        >
-          {repaying ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <AppText variant="smallStrong" color={colors.primary}>
-              Mark as repaid
-            </AppText>
-          )}
-        </Pressable>
+      {pending && (showRepayButton || onEdit) ? (
+        <View style={styles.actions}>
+          {onEdit ? (
+            <Pressable
+              onPress={() => onEdit(loan)}
+              disabled={repaying}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${loan.friendName}'s loan`}
+              accessibilityState={{ disabled: repaying }}
+              style={({ pressed }) => [
+                styles.editButton,
+                pressed && !repaying ? styles.editPressed : null,
+              ]}
+            >
+              <AppText variant="smallStrong" color={colors.inkMuted}>
+                Edit
+              </AppText>
+            </Pressable>
+          ) : null}
+
+          {showRepayButton ? (
+            <Pressable
+              onPress={() => onRepay(loan)}
+              disabled={repaying}
+              accessibilityRole="button"
+              accessibilityLabel={`Mark ${loan.friendName}'s loan as repaid`}
+              accessibilityState={{ disabled: repaying, busy: repaying }}
+              style={({ pressed }) => [
+                styles.repayButton,
+                pressed && !repaying ? styles.repayPressed : null,
+                repaying ? styles.repayBusy : null,
+              ]}
+            >
+              {repaying ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <AppText variant="smallStrong" color={colors.primary}>
+                  Mark as repaid
+                </AppText>
+              )}
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
     </Card>
   );
@@ -96,8 +135,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cardOverdue: {
-    borderColor: '#F3D9C8',
-    backgroundColor: '#FFFDFC',
+    borderColor: colors.dangerBorder,
+    backgroundColor: colors.dangerWash,
   },
   overdueAccent: {
     position: 'absolute',
@@ -142,7 +181,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   repayButton: {
-    marginTop: spacing.md,
+    flex: 1,
     minHeight: 44,
     borderRadius: radius.sm,
     borderWidth: 1,
@@ -150,6 +189,25 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  editButton: {
+    minHeight: 44,
+    minWidth: 72,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editPressed: {
+    backgroundColor: colors.surfaceMuted,
   },
   repayPressed: {
     backgroundColor: colors.primarySoft,

@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { currentUser, sendOk, validatedBody, validatedParams, validatedQuery } from '../../utils/http';
-import type { CreateLoanInput, ListLoansQuery } from '../../schemas/loans.schema';
+import type { CreateLoanInput, ListLoansQuery, UpdateLoanInput } from '../../schemas/loans.schema';
 import * as loansService from './loans.service';
 
 export const listLoans = asyncHandler(async (req: Request, res: Response) => {
@@ -34,4 +34,19 @@ export const repayLoan = asyncHandler(async (req: Request, res: Response) => {
   const { id } = validatedParams<{ id: string }>(req);
   const loan = await loansService.repayLoanForUser(user.id, id);
   sendOk(res, loan);
+});
+
+export const updateLoan = asyncHandler(async (req: Request, res: Response) => {
+  const user = currentUser(req);
+  const { id } = validatedParams<{ id: string }>(req);
+  const input = validatedBody<UpdateLoanInput>(req);
+  const loan = await loansService.updateLoanForUser(user.id, id, input);
+  sendOk(res, loan);
+});
+
+export const deleteLoan = asyncHandler(async (req: Request, res: Response) => {
+  const user = currentUser(req);
+  const { id } = validatedParams<{ id: string }>(req);
+  await loansService.deleteLoanForUser(user.id, id);
+  sendOk(res, { id });
 });

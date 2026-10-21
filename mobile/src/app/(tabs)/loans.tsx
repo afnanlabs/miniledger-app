@@ -19,6 +19,7 @@ import { colors, radius, spacing } from '../../constants/theme';
 import { useLedger } from '../../hooks/useLedger';
 import { ApiError } from '../../services/api';
 import type { Loan } from '../../types';
+import { confirmRepayment } from '../../utils/confirm';
 
 type Filter = 'all' | 'pending' | 'repaid';
 
@@ -30,7 +31,8 @@ const FILTERS: ReadonlyArray<SegmentOption<Filter>> = [
 
 export default function LoansScreen() {
   const router = useRouter();
-  const { loans, status, errorMessage, refreshing, repayingId, refresh, reload, repay } = useLedger();
+  const { loans, asOfDate, status, errorMessage, refreshing, repayingId, refresh, reload, repay } =
+    useLedger();
   const [filter, setFilter] = useState<Filter>('all');
 
   useFocusEffect(
@@ -50,17 +52,38 @@ export default function LoansScreen() {
   }, [loans]);
 
   const handleRepay = useCallback(
-    async (loanId: string) => {
-      try {
-        await repay(loanId);
-      } catch (error) {
-        Alert.alert(
-          'Could not mark as repaid',
-          error instanceof ApiError ? error.message : 'Please try again.',
-        );
-      }
+    (loan: Loan) => {
+      confirmRepayment(loan, () => {
+        void (async () => {
+          try {
+            await repay(loan.id);
+          } catch (error) {
+            Alert.alert(
+              'Could not mark as repaid',
+              error instanceof ApiError ? error.message : 'Please try again.',
+            );
+          }
+        })();
+      });
     },
     [repay],
+  );
+
+  const openAddLoan = useCallback(() => {
+    router.push({
+      pathname: '/add-loan',
+      params: asOfDate ? { asOfDate } : {},
+    });
+  }, [asOfDate, router]);
+
+  const handleEdit = useCallback(
+    (loan: Loan) => {
+      router.push({
+        pathname: '/add-loan',
+        params: { id: loan.id, ...(asOfDate ? { asOfDate } : {}) },
+      });
+    },
+    [asOfDate, router],
   );
 
   if (status === 'loading' && loans.length === 0) {
@@ -105,7 +128,7 @@ export default function LoansScreen() {
                 </AppText>
               </View>
               <Pressable
-                onPress={() => router.push('/add-loan')}
+                onPress={openAddLoan}
                 accessibilityRole="button"
                 accessibilityLabel="Add a loan"
                 style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
@@ -129,7 +152,13 @@ export default function LoansScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <LoanCard loan={item} onRepay={handleRepay} repaying={repayingId === item.id} />
+          <LoanCard
+            loan={item}
+            onRepay={handleRepay}
+            onEdit={handleEdit}
+            today={asOfDate || undefined}
+            repaying={repayingId === item.id}
+          />
         )}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
@@ -149,7 +178,7 @@ export default function LoansScreen() {
                     : 'Loans you mark as repaid will appear here.'
               }
               actionLabel={filter === 'all' ? 'Add a loan' : undefined}
-              onAction={filter === 'all' ? () => router.push('/add-loan') : undefined}
+              onAction={filter === 'all' ? openAddLoan : undefined}
             />
           </View>
         }
