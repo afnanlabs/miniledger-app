@@ -1,6 +1,6 @@
 # dependencies
 node_modules/
-
+server\sql
 # backend build output and coverage
 server/dist/
 coverage/
