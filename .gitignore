@@ -30,3 +30,7 @@ yarn-error.*
 Thumbs.db
 .idea/
 .vscode/
+
+# Documentation
+docs/
+

@@ -8,3 +8,10 @@ uploads/
 *.log
 npm-debug.log*
 .DS_Store
+
+# Tests
+tests/
+__tests__/
+*.test.ts
+*.spec.ts
+
