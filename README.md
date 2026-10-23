@@ -11,7 +11,7 @@ is overdue, and mark loans as repaid.
 |---|---|
 | Mobile | React Native 0.86 via Expo SDK 57, TypeScript, Expo Router, Fetch + AsyncStorage |
 | Backend | Node 20+, Express 5, TypeScript, PostgreSQL, `pg`, JWT, Zod |
-| Tests | Jest + Supertest (85 endpoint/unit tests) |
+| Tests | Jest + Supertest (94 endpoint/unit tests) |
 
 ---
 
@@ -38,6 +38,14 @@ is overdue, and mark loans as repaid.
   (today, +1 week, +1 month), client-side validation and server field errors
   mapped back to the inputs. Pending loans can be edited or deleted; repaid
   loans are immutable so settled history and summary totals stay intact.
+- **Receipt photos (optional).** When creating a loan you can attach a receipt
+  photo (JPEG, PNG, or WebP, up to 5 MB). The image is validated on the server by
+  magic bytes, stored outside the static public tree with a generated key, linked
+  to the loan in PostgreSQL, and only served to the loan owner over an
+  authenticated endpoint. Loans can be created without a receipt; deleting a
+  pending loan removes its receipt file on a best-effort basis. Receipts are
+  attached at creation only (the edit screen can view an existing receipt but
+  does not allow replacing it).
 - **Account view.** The dashboard account button shows the stored name, the
   formatted phone number, and a confirmed logout. There is no profile editing.
 - **Money as decimal strings.** Amounts are `NUMERIC(12,2)` in PostgreSQL and
@@ -57,20 +65,22 @@ MiniLedger/
 ├─ server/                 Express + PostgreSQL API
 │  ├─ src/
 │  │  ├─ config/           env parsing, pg pool
-│  │  ├─ middleware/       validate, requireAuth, error handler
+│  │  ├─ middleware/       validate, requireAuth, receiptUpload, error handler
 │  │  ├─ modules/          auth, loans, summary (routes/controller/service/repo)
 │  │  ├─ schemas/          Zod request schemas
+│  │  ├─ storage/          receiptStorage (disk storage, MIME magic bytes, path safety)
 │  │  ├─ utils/            money, dates, clock, AppError, asyncHandler, http
 │  │  ├─ app.ts            express app (exported for Supertest)
 │  │  └─ server.ts         http listener
 │  ├─ sql/001_init.sql     idempotent schema (tables, checks, indexes, triggers)
 │  ├─ sql/002_add_user_name.sql  safe `ADD COLUMN` migration for display names
+│  ├─ sql/003_add_loan_receipts.sql  optional receipt metadata + unique key index
 │  ├─ scripts/             migrate, seed, reset
-│  └─ tests/               Jest + Supertest suites
+│  └─ tests/               Jest + Supertest suites (5 suites, 94 tests)
 └─ mobile/                 Expo app
    └─ src/
       ├─ app/              Expo Router routes (tabs, login, add/edit loan, account)
-      ├─ components/       Screen, Card, Button, TextField, LoanCard, …
+      ├─ components/       Screen, Card, Button, TextField, LoanCard, ReceiptPicker, …
       ├─ hooks/            useAuth (session), useLedger (summary + loans)
       ├─ services/         fetch wrapper + auth/loans/summary clients
       ├─ constants/        API config and design tokens
@@ -199,6 +209,7 @@ All backend settings live in `server/.env` (see `server/.env.example`).
 | `EXPOSE_OTP_IN_RESPONSE` | `false` | Also returns `devOtp` in the API response |
 | `CORS_ORIGIN` | `*` | Allowed origins (native clients send none) |
 | `ENABLE_REQUEST_LOGGING` | `true` | HTTP request log |
+| `UPLOAD_DIR` | `./uploads` (relative to the server cwd) | Directory for uploaded receipt images. Point to a mounted volume in deployments. |
 
 The server refuses to boot in `NODE_ENV=production` while the development
 defaults for `DATABASE_URL`/`JWT_SECRET` are in use, and warns if OTP logging is
@@ -222,10 +233,11 @@ Base URL: `/api/v1`. Every response uses an envelope:
 | GET | `/auth/me` | Bearer | Current user (`id`, `phoneNumber`, `name`, `createdAt`) |
 | POST | `/auth/logout` | Bearer | Revokes the token used for the request |
 | GET | `/loans` | Bearer | List loans. Query: `status=all\|pending\|repaid`, `limit` (1–100, default 50), `offset` |
-| POST | `/loans` | Bearer | Create a loan → `201` |
+| POST | `/loans` | Bearer | Create a loan (JSON or `multipart/form-data` with an optional `receipt` image) → `201` |
 | GET | `/loans/:id` | Bearer | One loan |
+| GET | `/loans/:id/receipt` | Bearer | Download the attached receipt (private; owner only). |
 | PATCH | `/loans/:id` | Bearer | Update `friendName`, `amount` and/or `dueDate` on a pending loan |
-| DELETE | `/loans/:id` | Bearer | Delete a pending loan |
+| DELETE | `/loans/:id` | Bearer | Delete a pending loan (also removes its receipt file on a best-effort basis) |
 | PATCH | `/loans/:id/repay` | Bearer | Mark a pending loan repaid |
 | GET | `/summary` | Bearer | Aggregates for the signed-in user |
 
@@ -242,9 +254,18 @@ Loan object (`LoanView`):
   "isOverdue": true,
   "daysOverdue": 5,
   "createdAt": "2026-10-12T08:11:20.000Z",
-  "updatedAt": "2026-10-12T08:11:20.000Z"
+  "updatedAt": "2026-10-12T08:11:20.000Z",
+  "receipt": {
+    "url": "/loans/0f0b1c1e-…/receipt",
+    "mimeType": "image/png",
+    "originalName": "receipt.png",
+    "sizeBytes": 12345
+  }
 }
 ```
+
+`receipt` is `null` when no receipt is attached. The file is never served as a
+static asset; only the authenticated owner can stream it.
 
 Summary object:
 
@@ -368,7 +389,7 @@ curl -X POST http://localhost:4000/api/v1/loans \
 ```bash
 # backend
 cd server
-npm test              # 4 suites, 85 tests (Jest + Supertest, real PostgreSQL)
+npm test              # 5 suites, 94 tests (Jest + Supertest, real PostgreSQL)
 npm run typecheck     # tsc --noEmit
 
 # mobile
@@ -386,8 +407,10 @@ intentional non-test database. Overdue boundaries are tested explicitly
 
 Coverage includes: OTP expiry/attempts/replay, token revocation, validation
 errors, cross-user access, update/delete ownership, repaid-loan immutability,
-duplicate repayment, decimal-exact aggregation, pagination/status filters and
-unknown routes.
+duplicate repayment, decimal-exact aggregation, pagination/status filters,
+receipt photo upload (magic-byte validation, size limits, unauthenticated and
+cross-user isolation, file cleanup on loan deletion, and path traversal protection),
+and unknown routes.
 
 ---
 
@@ -412,6 +435,11 @@ unknown routes.
   refresh.
 - Repaid loans cannot be edited or deleted; that is intentional to protect
   settled history. A mis-entered loan must be corrected before repayment.
+- Local disk storage is used for receipt images (stored in `server/uploads/receipts`
+  by default, configurable via `UPLOAD_DIR`). In serverless or ephemeral container
+  environments without mounted persistent volumes, local disk files do not persist
+  across container restarts or scale-out instances. For production, an object store
+  (such as AWS S3, Cloudflare R2, or GCP Cloud Storage) or a mounted volume is recommended.
 - Single currency (INR) and Indian phone numbers.
 - The app icon/splash are still the Expo template assets, so they were left
   unchanged rather than presenting template artwork as final branding.
