@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from './AppText';
@@ -71,6 +72,7 @@ export function LoanCard({
             {overdue ? <Badge label="Overdue" tone="danger" /> : null}
             {pending && !overdue ? <Badge label="Pending" tone="warning" /> : null}
             {!pending ? <Badge label="Repaid" tone="success" /> : null}
+            {loan.receipt ? <Badge label="Receipt" tone="neutral" /> : null}
           </View>
         </View>
       </View>

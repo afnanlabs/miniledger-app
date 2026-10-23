@@ -56,6 +56,8 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
+  /** Multipart body. The runtime sets the multipart boundary itself. */
+  formData?: FormData;
 }
 
 interface ApiEnvelope<T> {
@@ -77,16 +79,23 @@ interface ApiEnvelope<T> {
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const isFormData = options.formData !== undefined;
 
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method: options.method ?? 'GET',
       headers: {
         Accept: 'application/json',
-        ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(!isFormData && options.body !== undefined
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      body: isFormData
+        ? options.formData
+        : options.body !== undefined
+          ? JSON.stringify(options.body)
+          : undefined,
       signal: controller.signal,
     });
 
@@ -144,4 +153,18 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Source for a private receipt image. React Native's image loader supports
+ * request headers, so the bearer token never needs to appear in a public URL.
+ */
+export function authenticatedImageSource(path: string): {
+  uri: string;
+  headers?: Record<string, string>;
+} {
+  return {
+    uri: `${API_BASE_URL}${path}`,
+    ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}),
+  };
 }

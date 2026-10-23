@@ -22,6 +22,14 @@ export interface VerifyOtpResponse {
 
 export type LoanStatus = 'pending' | 'repaid';
 
+export interface LoanReceipt {
+  /** Authenticated API path; fetch with the bearer token rather than a public URL. */
+  url: string;
+  mimeType: string;
+  originalName: string | null;
+  sizeBytes: number;
+}
+
 export interface Loan {
   id: string;
   friendName: string;
@@ -35,6 +43,17 @@ export interface Loan {
   daysOverdue: number;
   createdAt: string;
   updatedAt: string;
+  receipt: LoanReceipt | null;
+}
+
+/** A locally selected receipt, before the loan is submitted. */
+export interface ReceiptSelection {
+  uri: string;
+  fileName: string | null;
+  mimeType: string;
+  fileSize: number | null;
+  /** Web-only File object returned by expo-image-picker. */
+  file?: File;
 }
 
 export interface LoanListResponse {

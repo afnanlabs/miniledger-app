@@ -14,6 +14,7 @@ import {
 import { AppText } from '../components/AppText';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { AttachedReceipt, ReceiptPicker } from '../components/ReceiptPicker';
 import { Screen } from '../components/Screen';
 import { ErrorBanner, ErrorState, LoadingState } from '../components/StateView';
 import { TextField } from '../components/TextField';
@@ -27,6 +28,7 @@ import {
   isValidDateInput,
   todayIso,
 } from '../utils/format';
+import type { LoanReceipt, ReceiptSelection } from '../types';
 
 const AMOUNT_PATTERN = /^\d{1,10}(\.\d{1,2})?$/;
 
@@ -65,6 +67,8 @@ export default function AddLoanScreen() {
   const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(isEditing);
   const [loadError, setLoadError] = useState('');
+  const [receipt, setReceipt] = useState<ReceiptSelection | null>(null);
+  const [existingReceipt, setExistingReceipt] = useState<LoanReceipt | null>(null);
 
   const initialValues = useRef<FormValues>({
     friendName: '',
@@ -109,6 +113,8 @@ export default function AddLoanScreen() {
         setFriendName(values.friendName);
         setAmount(values.amount);
         setDueDate(values.dueDate);
+        setExistingReceipt(loan.receipt);
+        setReceipt(null);
         setLoading(false);
       })
       .catch((error) => {
@@ -129,7 +135,8 @@ export default function AddLoanScreen() {
   const isDirty =
     friendName !== initialValues.current.friendName ||
     amount !== initialValues.current.amount ||
-    dueDate !== initialValues.current.dueDate;
+    dueDate !== initialValues.current.dueDate ||
+    receipt !== null;
 
   function handleAmountChange(value: string) {
     const cleaned = value.replace(/[^0-9.]/g, '');
@@ -192,7 +199,7 @@ export default function AddLoanScreen() {
       if (loanId) {
         await loansService.update(loanId, input);
       } else {
-        await loansService.create(input);
+        await loansService.create(input, receipt);
       }
 
       if (!mounted.current) return;
@@ -318,8 +325,8 @@ export default function AddLoanScreen() {
         >
           <AppText variant="small" color={colors.inkMuted} style={styles.intro}>
             {isEditing
-              ? 'Update the amount, friend, or due date. Only pending loans can be changed.'
-              : 'Record money you have lent. It stays pending until you mark it as repaid.'}
+              ? 'Update the amount, friend, or due date. Only pending loans can be changed. Receipts cannot be changed from this screen.'
+              : 'Record money you have lent. It stays pending until you mark it as repaid. You can attach an optional receipt photo.'}
           </AppText>
 
           {formError ? (
@@ -388,7 +395,20 @@ export default function AddLoanScreen() {
                 onPress={selectDueDate}
               />
             </View>
+
+            {!isEditing ? (
+              <ReceiptPicker
+                value={receipt}
+                onChange={(next) => {
+                  setReceipt(next);
+                  setFormError('');
+                }}
+                disabled={busy || saved}
+              />
+            ) : null}
           </Card>
+
+          {isEditing && existingReceipt ? <AttachedReceipt receipt={existingReceipt} /> : null}
 
           <View style={styles.hint}>
             <Ionicons name="information-circle-outline" size={16} color={colors.inkFaint} />

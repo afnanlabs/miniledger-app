@@ -4,8 +4,15 @@ import type {
   Loan,
   LoanListResponse,
   LoanStatus,
+  ReceiptSelection,
   UpdateLoanInput,
 } from '../types';
+
+const RECEIPT_MIME_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
 
 /** The API caps a page at 100 rows; the app walks every page. */
 const PAGE_SIZE = 100;
@@ -52,8 +59,33 @@ export const loansService = {
     );
   },
 
-  create(input: CreateLoanInput): Promise<Loan> {
-    return apiRequest<Loan>('/loans', { method: 'POST', body: input });
+  create(input: CreateLoanInput, receipt?: ReceiptSelection | null): Promise<Loan> {
+    if (!receipt) {
+      return apiRequest<Loan>('/loans', { method: 'POST', body: input });
+    }
+
+    const formData = new FormData();
+    formData.append('friendName', input.friendName);
+    formData.append('amount', input.amount);
+    formData.append('dueDate', input.dueDate);
+
+    const mimeType = receipt.mimeType || 'image/jpeg';
+    const extension = RECEIPT_MIME_EXTENSIONS[mimeType] || 'jpg';
+    const fileName = receipt.fileName?.trim() || `receipt.${extension}`;
+
+    if (receipt.file) {
+      formData.append('receipt', receipt.file, fileName);
+      return apiRequest<Loan>('/loans', { method: 'POST', formData });
+    }
+
+    // React Native file object shape for the fetch implementation.
+    formData.append('receipt', {
+      uri: receipt.uri,
+      name: fileName,
+      type: mimeType,
+    } as unknown as Blob);
+
+    return apiRequest<Loan>('/loans', { method: 'POST', formData });
   },
 
   get(id: string): Promise<Loan> {
