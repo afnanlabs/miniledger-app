@@ -3,6 +3,7 @@ node_modules/
 server\sql
 # backend build output and coverage
 server/dist/
+server/uploads/
 coverage/
 *.tsbuildinfo
 

@@ -1,6 +1,8 @@
+import fs from 'node:fs';
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { pool } from '../src/config/db';
+import { RECEIPT_ROOT } from '../src/storage/receiptStorage';
 import { assertSafeTestDatabase } from './testDatabase';
 
 export const app = createApp();
@@ -16,6 +18,7 @@ export async function resetDatabase(): Promise<void> {
   // invoking this helper can never truncate a non-test database.
   assertSafeTestDatabase(process.env.DATABASE_URL ?? '');
   await pool.query('TRUNCATE loans, otp_challenges, users RESTART IDENTITY CASCADE');
+  await fs.promises.rm(RECEIPT_ROOT, { recursive: true, force: true });
 }
 
 /** A unique, valid Indian mobile number per call. */

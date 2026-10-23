@@ -15,7 +15,11 @@ const LOAN_COLUMNS = `
   status,
   repaid_at,
   created_at,
-  updated_at
+  updated_at,
+  receipt_storage_key,
+  receipt_mime_type,
+  receipt_original_name,
+  receipt_size_bytes
 `;
 
 /**
@@ -48,6 +52,24 @@ export interface LoanRow {
   updated_at: Date;
   is_overdue: boolean;
   days_overdue: number;
+  receipt_storage_key: string | null;
+  receipt_mime_type: string | null;
+  receipt_original_name: string | null;
+  receipt_size_bytes: number | null;
+}
+
+export interface ReceiptMetadata {
+  storageKey: string;
+  mimeType: string;
+  originalName: string | null;
+  sizeBytes: number;
+}
+
+export interface LoanReceiptRow {
+  receipt_storage_key: string | null;
+  receipt_mime_type: string | null;
+  receipt_original_name: string | null;
+  receipt_size_bytes: number | null;
 }
 
 export interface ListLoansOptions {
@@ -114,12 +136,32 @@ export async function insertLoan(params: {
   friendName: string;
   amount: string;
   dueDate: string;
+  receipt?: ReceiptMetadata | null;
 }): Promise<Omit<LoanRow, 'is_overdue' | 'days_overdue'>> {
+  const receipt = params.receipt ?? null;
   const created = await queryOne<Omit<LoanRow, 'is_overdue' | 'days_overdue'>>(
-    `INSERT INTO loans (user_id, friend_name, amount, due_date)
-     VALUES ($1, $2, $3, $4::date)
+    `INSERT INTO loans (
+       user_id,
+       friend_name,
+       amount,
+       due_date,
+       receipt_storage_key,
+       receipt_mime_type,
+       receipt_original_name,
+       receipt_size_bytes
+     )
+     VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8)
      RETURNING ${LOAN_COLUMNS}`,
-    [params.userId, params.friendName, params.amount, params.dueDate],
+    [
+      params.userId,
+      params.friendName,
+      params.amount,
+      params.dueDate,
+      receipt?.storageKey ?? null,
+      receipt?.mimeType ?? null,
+      receipt?.originalName ?? null,
+      receipt?.sizeBytes ?? null,
+    ],
   );
   if (!created) throw new Error('Unable to create loan');
   return created;
@@ -171,15 +213,42 @@ export async function updatePendingLoan(
   );
 }
 
-/** Deletes only a pending loan; repaid history cannot be removed. */
-export async function deletePendingLoan(userId: string, loanId: string): Promise<boolean> {
-  const rows = await query<{ id: string }>(
+/**
+ * Deletes only a pending loan; repaid history cannot be removed.
+ *
+ * The storage key is returned after the row is gone so the service can remove
+ * the associated file without ever deleting a file for a loan that still
+ * exists.
+ */
+export async function deletePendingLoan(
+  userId: string,
+  loanId: string,
+): Promise<{ receiptStorageKey: string | null } | null> {
+  const rows = await query<{ receipt_storage_key: string | null }>(
     `DELETE FROM loans
      WHERE id = $1 AND user_id = $2 AND status = 'pending'
-     RETURNING id`,
+     RETURNING receipt_storage_key`,
     [loanId, userId],
   );
-  return rows.length > 0;
+  if (rows.length === 0) return null;
+  return { receiptStorageKey: rows[0].receipt_storage_key };
+}
+
+/** Returns receipt metadata only for a loan owned by the authenticated user. */
+export async function findLoanReceipt(
+  userId: string,
+  loanId: string,
+): Promise<LoanReceiptRow | null> {
+  return queryOne<LoanReceiptRow>(
+    `SELECT
+       receipt_storage_key,
+       receipt_mime_type,
+       receipt_original_name,
+       receipt_size_bytes
+     FROM loans
+     WHERE id = $1 AND user_id = $2`,
+    [loanId, userId],
+  );
 }
 
 /**

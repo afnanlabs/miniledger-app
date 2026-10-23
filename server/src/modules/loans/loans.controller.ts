@@ -18,7 +18,7 @@ export const listLoans = asyncHandler(async (req: Request, res: Response) => {
 export const createLoan = asyncHandler(async (req: Request, res: Response) => {
   const user = currentUser(req);
   const input = validatedBody<CreateLoanInput>(req);
-  const loan = await loansService.createLoanForUser(user.id, input);
+  const loan = await loansService.createLoanForUser(user.id, input, req.file);
   sendOk(res, loan, 201);
 });
 
@@ -49,4 +49,21 @@ export const deleteLoan = asyncHandler(async (req: Request, res: Response) => {
   const { id } = validatedParams<{ id: string }>(req);
   await loansService.deleteLoanForUser(user.id, id);
   sendOk(res, { id });
+});
+
+export const getLoanReceipt = asyncHandler(async (req: Request, res: Response) => {
+  const user = currentUser(req);
+  const { id } = validatedParams<{ id: string }>(req);
+  const receipt = await loansService.getLoanReceiptForUser(user.id, id);
+
+  // The file is private: never let a shared cache or a browser guess a type.
+  const asciiName = (receipt.originalName ?? 'receipt')
+    .replace(/[^\x20-\x7e]/g, '_')
+    .replace(/["\\]/g, '_');
+
+  res.setHeader('Content-Type', receipt.mimeType);
+  res.setHeader('Content-Disposition', `inline; filename="${asciiName}"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.sendFile(receipt.absolutePath);
 });

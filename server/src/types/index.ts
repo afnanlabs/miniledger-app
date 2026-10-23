@@ -73,6 +73,14 @@ export interface Summary {
   asOfDate: string;
 }
 
+export interface LoanReceiptView {
+  /** Authenticated API path. Receipt files are never served as static assets. */
+  url: string;
+  mimeType: string;
+  originalName: string | null;
+  sizeBytes: number;
+}
+
 export interface LoanView {
   id: string;
   friendName: string;
@@ -84,4 +92,6 @@ export interface LoanView {
   daysOverdue: number;
   createdAt: string;
   updatedAt: string;
+  /** Null when the loan was created without a receipt. */
+  receipt: LoanReceiptView | null;
 }

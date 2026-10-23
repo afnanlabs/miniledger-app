@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
+import multer from 'multer';
 import { ZodError } from 'zod';
 import { AppError } from '../utils/AppError';
 
@@ -36,6 +37,43 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
           field: issue.path.join('.'),
           message: issue.message,
         })),
+      },
+    });
+    return;
+  }
+
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      res.status(413).json({
+        success: false,
+        error: {
+          code: 'RECEIPT_TOO_LARGE',
+          message: 'Receipt must be 5 MB or smaller.',
+        },
+      });
+      return;
+    }
+
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'RECEIPT_UPLOAD_ERROR',
+        message: 'The receipt upload could not be processed. Send one image in the "receipt" field.',
+      },
+    });
+    return;
+  }
+
+  // Multer can surface a malformed multipart body as a plain Error.
+  if (
+    error instanceof Error &&
+    /multipart|unexpected end of form/i.test(error.message)
+  ) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'RECEIPT_UPLOAD_ERROR',
+        message: 'The receipt upload could not be processed.',
       },
     });
     return;

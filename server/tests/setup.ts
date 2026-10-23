@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import { assertSafeTestDatabase } from './testDatabase';
@@ -23,6 +24,8 @@ process.env.LOG_OTP_TO_CONSOLE = 'false';
 process.env.EXPOSE_OTP_IN_RESPONSE = 'true';
 process.env.ENABLE_REQUEST_LOGGING = 'false';
 process.env.OTP_MAX_REQUESTS_PER_WINDOW = process.env.OTP_MAX_REQUESTS_PER_WINDOW ?? '5';
+// Keep receipt writes out of the repository and isolated from local uploads.
+process.env.UPLOAD_DIR = path.join(os.tmpdir(), 'miniledger-test-uploads');
 
 /**
  * Each test file gets its own module registry, so it also gets its own pg Pool.

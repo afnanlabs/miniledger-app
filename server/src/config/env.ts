@@ -28,6 +28,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   TEST_DATABASE_URL: z.string().min(1).optional(),
 
+  /** Directory for uploaded files. Defaults to `<server cwd>/uploads`. */
+  UPLOAD_DIR: z.string().min(1).optional(),
+
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters long'),
   JWT_EXPIRES_IN: z.string().min(1).default('7d'),
 
